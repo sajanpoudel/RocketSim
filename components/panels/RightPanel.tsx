@@ -19,12 +19,82 @@ const mockMetrics = {
   recoveryTime: 120, // s - placeholder
 }
 
-// Motor database (simplified)
+// Enhanced motor database with more detailed properties
 const MOTORS = {
+  'mini-motor': {
+    thrust: 15, // N
+    burnTime: 1.8, // s
+    isp: 180, // s
+    type: 'solid',
+    propellantMass: 0.010, // kg
+    dryMass: 0.008, // kg
+    totalImpulse: 27, // N·s
+  },
   'default-motor': {
     thrust: 32, // N
     burnTime: 2.4, // s
-    isp: 120 // s
+    isp: 200, // s
+    type: 'solid',
+    propellantMass: 0.040, // kg
+    dryMass: 0.015, // kg
+    totalImpulse: 76.8, // N·s
+  },
+  'high-power': {
+    thrust: 60, // N
+    burnTime: 3.2, // s
+    isp: 220, // s
+    type: 'solid',
+    propellantMass: 0.090, // kg
+    dryMass: 0.025, // kg
+    totalImpulse: 192, // N·s
+  },
+  'super-power': {
+    thrust: 120, // N
+    burnTime: 4.0, // s
+    isp: 240, // s
+    type: 'solid',
+    propellantMass: 0.200, // kg
+    dryMass: 0.050, // kg
+    totalImpulse: 480, // N·s
+  },
+  'small-liquid': {
+    thrust: 500, // N
+    burnTime: 30, // s
+    isp: 300, // s
+    type: 'liquid',
+    propellantMass: 1.5, // kg
+    dryMass: 0.8, // kg
+    totalImpulse: 15000, // N·s
+    mixtureRatio: 2.1, // O/F ratio
+  },
+  'medium-liquid': {
+    thrust: 2000, // N
+    burnTime: 45, // s
+    isp: 320, // s
+    type: 'liquid',
+    propellantMass: 6.5, // kg
+    dryMass: 2.0, // kg
+    totalImpulse: 90000, // N·s
+    mixtureRatio: 2.3, // O/F ratio
+  },
+  'large-liquid': {
+    thrust: 8000, // N
+    burnTime: 60, // s
+    isp: 340, // s
+    type: 'liquid',
+    propellantMass: 24.0, // kg
+    dryMass: 5.0, // kg
+    totalImpulse: 480000, // N·s
+    mixtureRatio: 2.4, // O/F ratio
+  },
+  'hybrid-engine': {
+    thrust: 1200, // N
+    burnTime: 20, // s
+    isp: 280, // s
+    type: 'hybrid',
+    propellantMass: 4.5, // kg
+    dryMass: 1.2, // kg
+    totalImpulse: 24000, // N·s
   }
 };
 
@@ -68,6 +138,58 @@ function MetricChart({ title, value, max, unit, color = '#A0A7B8' }: {
   );
 }
 
+// New component for engine specifications
+function EngineSpecs({ motorId }: { motorId: string }) {
+  const motor = MOTORS[motorId as keyof typeof MOTORS] || MOTORS['default-motor'];
+  
+  return (
+    <div className="glass-panel rounded p-3 mb-3">
+      <h3 className="text-xs text-white text-opacity-70 mb-2">Propulsion System: {motorId}</h3>
+      <div className="grid grid-cols-2 gap-2 text-xs">
+        <div>
+          <span className="text-white text-opacity-50">Type:</span>
+          <span className="ml-1 font-semibold capitalize">{motor.type}</span>
+        </div>
+        <div>
+          <span className="text-white text-opacity-50">Thrust:</span>
+          <span className="ml-1 font-semibold">{formatNumber(motor.thrust)} N</span>
+        </div>
+        <div>
+          <span className="text-white text-opacity-50">Burn Time:</span>
+          <span className="ml-1 font-semibold">{formatNumber(motor.burnTime)} s</span>
+        </div>
+        <div>
+          <span className="text-white text-opacity-50">Spec. Impulse:</span>
+          <span className="ml-1 font-semibold">{formatNumber(motor.isp)} s</span>
+        </div>
+        <div>
+          <span className="text-white text-opacity-50">Tot. Impulse:</span>
+          <span className="ml-1 font-semibold">{formatNumber(motor.totalImpulse)} N·s</span>
+        </div>
+        <div>
+          <span className="text-white text-opacity-50">Propellant:</span>
+          <span className="ml-1 font-semibold">{formatNumber(motor.propellantMass * 1000)} g</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// New component for physics calculation badge
+function PhysicsBadge({ title, value, unit, color }: { 
+  title: string;
+  value: number;
+  unit: string;
+  color: string;
+}) {
+  return (
+    <div className="glass-panel rounded p-2 text-center" style={{ borderLeft: `3px solid ${color}` }}>
+      <p className="text-xs text-white text-opacity-70">{title}</p>
+      <p className="text-section-header font-mono text-white">{formatNumber(value)} {unit}</p>
+    </div>
+  );
+}
+
 export default function RightPanel({ onCollapse, isCollapsed }: RightPanelProps) {
   // Get rocket and simulation data from store
   const simData = useRocket(state => state.sim);
@@ -78,9 +200,18 @@ export default function RightPanel({ onCollapse, isCollapsed }: RightPanelProps)
   
   // Get motor data based on motorId
   const motorData = MOTORS[rocket.motorId as keyof typeof MOTORS] || MOTORS['default-motor'];
-  const motorThrust = motorData.thrust;
+  const motorThrust = simData?.motorThrust || motorData.thrust;
   const burnTime = motorData.burnTime;
   const motorIsp = motorData.isp;
+  
+  // Calculate thrust-to-weight ratio
+  const thrustToWeight = motorThrust / (mass * 9.81);
+  
+  // Calculate total delta-V using the rocket equation
+  const exhaustVelocity = motorIsp * 9.81; // m/s
+  const totalMass = mass + motorData.propellantMass;
+  const dryMass = mass + motorData.dryMass;
+  const deltaV = exhaustVelocity * Math.log(totalMass / dryMass);
   
   // Derived metrics from sim data (or use mock if not available)
   const metrics = {
@@ -93,7 +224,10 @@ export default function RightPanel({ onCollapse, isCollapsed }: RightPanelProps)
     dragCoefficient: rocket.Cd,
     apogee: simData?.maxAltitude || mockMetrics.apogee,
     burnTime: burnTime,
-    recoveryTime: mockMetrics.recoveryTime, // TODO: add recovery time Parachute size/type (not currently defined in the rocket model)Deployment altitude Descent rate
+    thrustToWeight: thrustToWeight,
+    deltaV: deltaV,
+    recoveryTime: mockMetrics.recoveryTime,
+    motorId: rocket.motorId,
   };
 
   return (
@@ -109,44 +243,38 @@ export default function RightPanel({ onCollapse, isCollapsed }: RightPanelProps)
         </button>
       </div>
       
-      {/* Chat area (60% height) */}
-      <div className="flex-1 overflow-hidden flex flex-col" style={{ height: '60%' }}>
+      {/* Chat area (50% height) */}
+      <div className="flex-1 overflow-hidden flex flex-col" style={{ height: '50%' }}>
         <ChatPanel />
       </div>
       
       {/* Divider */}
       <div className="panel-divider-h"></div>
       
-      {/* Metrics dashboard (40% height) */}
-      <div className="p-3 overflow-y-auto" style={{ height: '40%' }}>
+      {/* Metrics dashboard (50% height) */}
+      <div className="p-3 overflow-y-auto" style={{ height: '50%' }}>
         <h2 className="text-panel-header font-light mb-3">Rocket Metrics</h2>
+        
+        {/* Engine Specifications */}
+        <EngineSpecs motorId={rocket.motorId} />
         
         {/* Key performance metrics */}
         <div className="grid grid-cols-2 gap-x-4 gap-y-2 mb-4">
-          <div className="glass-panel rounded p-2 text-center">
-            <p className="text-xs text-white text-opacity-70">Thrust</p>
-            <p className="text-section-header font-mono text-white">{formatNumber(metrics.thrust)} N</p>
-          </div>
-          <div className="glass-panel rounded p-2 text-center">
-            <p className="text-xs text-white text-opacity-70">Apogee</p>
-            <p className="text-section-header font-mono text-white">{formatNumber(metrics.apogee)} m</p>
-          </div>
-          <div className="glass-panel rounded p-2 text-center">
-            <p className="text-xs text-white text-opacity-70">Mass</p>
-            <p className="text-section-header font-mono text-white">{formatNumber(metrics.mass)} kg</p>
-          </div>
-          <div className="glass-panel rounded p-2 text-center">
-            <p className="text-xs text-white text-opacity-70">Stability</p>
-            <p className="text-section-header font-mono text-white">{formatNumber(metrics.stability)} cal</p>
-          </div>
+          <PhysicsBadge title="Thrust" value={metrics.thrust} unit="N" color="#FFB74D" />
+          <PhysicsBadge title="Apogee" value={metrics.apogee} unit="m" color="#64B5F6" />
+          <PhysicsBadge title="Mass" value={metrics.mass} unit="kg" color="#81C784" />
+          <PhysicsBadge title="T/W Ratio" value={metrics.thrustToWeight} unit="" color="#BA68C8" />
+          <PhysicsBadge title="Delta-V" value={metrics.deltaV} unit="m/s" color="#4DB6AC" />
+          <PhysicsBadge title="Stability" value={metrics.stability} unit="cal" color="#F06292" />
         </div>
         
         {/* Detailed metrics */}
         <div className="glass-panel rounded p-3 shadow-md space-y-3">
-          <MetricChart title="Altitude" value={metrics.altitude} max={5000} unit="m" color="#64B5F6" />
-          <MetricChart title="Velocity" value={metrics.velocity} max={500} unit="m/s" color="#81C784" />
-          <MetricChart title="Thrust" value={metrics.thrust} max={3000} unit="N" color="#FFB74D" />
-          <MetricChart title="Stability" value={metrics.stability} max={3} unit="cal" color="#BA68C8" />
+          <MetricChart title="Altitude" value={metrics.altitude} max={(metrics.motorId && metrics.motorId.includes('liquid')) ? 50000 : 5000} unit="m" color="#64B5F6" />
+          <MetricChart title="Velocity" value={metrics.velocity} max={(metrics.motorId && metrics.motorId.includes('liquid')) ? 2000 : 500} unit="m/s" color="#81C784" />
+          <MetricChart title="Thrust" value={metrics.thrust} max={(metrics.motorId && metrics.motorId.includes('liquid')) ? 10000 : 150} unit="N" color="#FFB74D" />
+          <MetricChart title="Delta-V" value={metrics.deltaV} max={(metrics.motorId && metrics.motorId.includes('liquid')) ? 5000 : 1000} unit="m/s" color="#4DB6AC" />
+          <MetricChart title="Thrust-to-Weight" value={metrics.thrustToWeight} max={50} unit="" color="#BA68C8" />
         </div>
       </div>
     </div>

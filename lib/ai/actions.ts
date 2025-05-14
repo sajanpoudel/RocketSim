@@ -12,18 +12,127 @@ export function runQuickSim() {
   const finParts = rocket.parts.filter(p => p.type === 'fin') as Fin[];
   
   // Get motor data (in production, this would come from a motor database)
-  const motorThrust = 32; // N - Example motor
-  const burnTime = 2.4; // s
+  // Define our complete propulsion systems database
+  const propulsionSystems = {
+    'mini-motor': {
+      thrust: 15, // N
+      burnTime: 1.8, // s
+      isp: 180, // s
+      type: 'solid',
+      propellantMass: 0.010, // kg
+      dryMass: 0.008, // kg
+      totalImpulse: 27 // N·s
+    },
+    'default-motor': {
+      thrust: 32, // N
+      burnTime: 2.4, // s
+      isp: 200, // s
+      type: 'solid',
+      propellantMass: 0.040, // kg
+      dryMass: 0.015, // kg
+      totalImpulse: 76.8 // N·s
+    },
+    'high-power': {
+      thrust: 60, // N
+      burnTime: 3.2, // s
+      isp: 220, // s
+      type: 'solid',
+      propellantMass: 0.090, // kg
+      dryMass: 0.025, // kg
+      totalImpulse: 192 // N·s
+    },
+    'super-power': {
+      thrust: 120, // N
+      burnTime: 4.0, // s
+      isp: 240, // s
+      type: 'solid',
+      propellantMass: 0.200, // kg
+      dryMass: 0.050, // kg
+      totalImpulse: 480 // N·s
+    },
+    'small-liquid': {
+      thrust: 500, // N
+      burnTime: 30, // s
+      isp: 300, // s
+      type: 'liquid',
+      propellantMass: 1.5, // kg
+      dryMass: 0.8, // kg
+      totalImpulse: 15000 // N·s
+    },
+    'medium-liquid': {
+      thrust: 2000, // N
+      burnTime: 45, // s
+      isp: 320, // s
+      type: 'liquid',
+      propellantMass: 6.5, // kg
+      dryMass: 2.0, // kg
+      totalImpulse: 90000 // N·s
+    },
+    'large-liquid': {
+      thrust: 8000, // N
+      burnTime: 60, // s
+      isp: 340, // s
+      type: 'liquid',
+      propellantMass: 24.0, // kg
+      dryMass: 5.0, // kg
+      totalImpulse: 480000 // N·s
+    },
+    'hybrid-engine': {
+      thrust: 1200, // N
+      burnTime: 20, // s
+      isp: 280, // s
+      type: 'hybrid',
+      propellantMass: 4.5, // kg
+      dryMass: 1.2, // kg
+      totalImpulse: 24000 // N·s
+    }
+  };
+  
+  // Get motor data from database or use default
+  const selectedMotor = propulsionSystems[rocket.motorId as keyof typeof propulsionSystems] || propulsionSystems['default-motor'];
+  const motorThrust = selectedMotor.thrust;
+  const burnTime = selectedMotor.burnTime;
+  const isp = selectedMotor.isp;
   
   // Calculate mass based on parts
   const mass = estimateRocketMass(rocket);
+  
+  // Add engine mass
+  const totalMass = mass + selectedMotor.dryMass + selectedMotor.propellantMass;
   const dragCoefficient = rocket.Cd;
   
-  // Base physics calculations
-  const acceleration = motorThrust / mass;
-  const impulse = motorThrust * burnTime;
-  const maxVelocity = impulse / mass * 0.8; // 80% efficiency due to drag
-  const maxAltitude = (maxVelocity * maxVelocity) / (2 * 9.8) * 0.7; // h = v²/2g with 70% efficiency for drag
+  // More sophisticated physics calculations
+  let maxAltitude, maxVelocity;
+  
+  if (selectedMotor.type === 'liquid') {
+    // Liquid engines need special handling
+    console.log('Calculating liquid engine performance...');
+    // More accurate rocket equation for liquid engines
+    const exhaustVelocity = isp * 9.81; // m/s
+    const deltaV = exhaustVelocity * Math.log(totalMass / (totalMass - selectedMotor.propellantMass)) 
+                  - burnTime * 9.81 * 0.2; // with gravity losses
+    
+    // More accurate altitude estimation with air density effects
+    const effectiveDeltaV = deltaV * 0.85; // 85% efficiency for drag and other losses
+    maxVelocity = effectiveDeltaV;
+    
+    // For liquid engines, consider powered flight contribution
+    const poweredAltitude = (motorThrust / totalMass - 9.81) * (burnTime**2) / 2 * 0.8;
+    const ballisticAltitude = (effectiveDeltaV**2) / (2 * 9.81);
+    maxAltitude = Math.max(0, poweredAltitude) + ballisticAltitude;
+    
+    // For very high altitudes, apply density correction
+    if (maxAltitude > 10000) {
+      maxAltitude *= 1.2; // Thinner air at high altitudes means less drag
+    }
+  } else {
+    // Standard calculation for solid motors
+    const acceleration = motorThrust / totalMass;
+    const impulse = motorThrust * burnTime;
+    const velocityFactor = selectedMotor.type === 'hybrid' ? 0.85 : 0.8;
+    maxVelocity = impulse / totalMass * velocityFactor;
+    maxAltitude = (maxVelocity * maxVelocity) / (2 * 9.81) * 0.7;
+  }
   
   // Calculate stability margin (calibers)
   const stabilityMargin = calculateStability(rocket);
@@ -33,7 +142,8 @@ export function runQuickSim() {
     maxAltitude,
     maxVelocity,
     apogeeTime: maxVelocity / 9.8,
-    stabilityMargin
+    stabilityMargin,
+    motorThrust // Add the motor thrust to the simulation data
   });
 }
 

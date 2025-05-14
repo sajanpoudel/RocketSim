@@ -42,6 +42,7 @@ export interface SimulationResult {
   apogeeTime: number;
   stabilityMargin: number;
   thrustCurve?: [number, number][];
+  motorThrust?: number;
 }
 
 // State interface
