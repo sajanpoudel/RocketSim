@@ -1,0 +1,25 @@
+version: '3'
+
+services:
+  web:
+    build: .
+    ports:
+      - "3000:3000"
+    env_file: .env
+    depends_on: [agentpy]
+    volumes:
+      - .:/app
+      - /app/node_modules
+    command: npm run dev
+
+  agentpy:
+    build: ./services/agentpy
+    ports: ["8002:8002"]
+    env_file: .env
+    volumes:
+      - ./services/agentpy:/app
+
+  rocketpy:
+    build: ./services/rocketpy
+    ports: ["8000:8000"]
+    env_file: .env 

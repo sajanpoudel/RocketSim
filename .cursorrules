@@ -1,0 +1,332 @@
+# Rocket‑Cursor AI • **Agent‑SDK Edition**
+
+*A step‑by‑step playbook for wiring your polished Next 14 + R3F UI to a Python micro‑service that runs the official **OpenAI Agents SDK**. The agent can:*
+
+* add / remove parts
+* resize or recolor them
+* trigger quick or high‑fidelity sims
+* explain the results
+* keep the 3‑D scene, physics store, and chat history perfectly in‑sync
+
+> **Key difference from the earlier guide:** the entire loop of planning → tool execution → retries → final answer is now handled by the **Python Agent service**, not by your Node/React code. The front‑end only replays the returned *actions* array.
+
+---
+
+## 0 . Prerequisites & new packages
+
+**Node side (unchanged):**
+
+```bash
+pnpm add uuid zustand three @react-three/fiber @react-three/drei
+```
+
+**Python micro‑service:**
+
+```
+services/agentpy/requirements.txt
+```
+
+```text
+fastapi
+uvicorn[standard]
+openai-agents>=0.4.0      # official SDK
+pydantic>=2.7
+```
+
+`.env` (shared for web & agentpy):
+
+```dotenv
+OPENAI_API_KEY=sk-…
+```
+
+---
+
+\## 1 . Rocket data model (still in TypeScript)
+
+`types/rocket.d.ts` *(same as before; front‑end state doesn’t change)*
+
+```ts
+export interface PartBase { id: string; type: string; color: string }
+export interface Nose extends PartBase { type: "nose"; shape:"ogive"|"conical"; length:number; baseØ:number }
+export interface Body extends PartBase { type: "body"; Ø:number; length:number }
+export interface Fin  extends PartBase { type: "fin"; root:number; span:number; sweep:number }
+export type Part = Nose | Body | Fin;
+
+export interface Rocket {
+  id: string; name: string; parts: Part[];
+  motorId: string; Cd: number; units:"metric"|"imperial";
+}
+```
+
+Zustand store (`lib/store.ts`) is identical:
+
+```ts
+export const useRocket = create<RocketState>()((set)=>({
+  rocket: DEFAULT_ROCKET,
+  sim:null,
+  updateRocket:(fn)=>set((s)=>({ rocket: fn(structuredClone(s.rocket)) })),
+  setSim:(sim)=>set({ sim }),
+}));
+```
+
+---
+
+\## 2 . Python Agent service (`services/agentpy/`)
+
+### 2.1 `app.py`
+
+```python
+import os, json, uvicorn
+from fastapi import FastAPI
+from pydantic import BaseModel
+from agents import Agent, Runner, function_tool
+
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
+# ---------- Pydantic replicas of the TS types -------------
+class Part(BaseModel):
+    id: str
+    type: str
+    color: str | None = "white"
+    props: dict
+
+class Rocket(BaseModel):
+    id: str
+    name: str
+    parts: list[Part]
+    motorId: str
+    Cd: float
+    units: str = "metric"
+
+# ---------- Agent tools -----------------------------------
+@function_tool
+def add_part(type: str, props: dict) -> str:
+    """Insert a new rocket component."""
+    return json.dumps({"action": "add_part", "type": type, "props": props})
+
+@function_tool
+def update_part(id: str, props: dict) -> str:
+    """Modify an existing component."""
+    return json.dumps({"action": "update_part", "id": id, "props": props})
+
+@function_tool
+def run_simulation(fidelity: str) -> str:
+    """Run a simulation ('quick' or 'hifi')."""
+    return json.dumps({"action": "run_sim", "fidelity": fidelity})
+
+TOOLS = [add_part, update_part, run_simulation]
+
+agent = Agent(
+    name="Rocket‑Cursor AI",
+    instructions=(
+        "You are an expert assistant for model‑rocket design. "
+        "Always inspect CURRENT_ROCKET_JSON and decide which tool to call. "
+        "If apogee < 100 m, suggest improvements."
+    ),
+    tools=TOOLS,
+    model="gpt-4o-mini",
+    temperature=0.6,
+)
+
+app = FastAPI()
+
+class ChatRequest(BaseModel):
+    messages: list   # [{role:'user',content:'...'}, …]
+    rocket: Rocket
+
+@app.post("/reason")
+async def reason(req: ChatRequest):
+    start = [
+        {"role":"system",
+         "content":"CURRENT_ROCKET_JSON\n"+req.rocket.model_dump_json()}
+    ] + req.messages
+
+    result = await Runner.run_async(agent=agent, input=start, stream=False)
+    return result.dict()          # => {final_output, actions, trace_url}
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8002)
+```
+
+\### 2.2 `Dockerfile`
+
+```dockerfile
+FROM python:3.11-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY app.py .
+ENV OPENAI_API_KEY=${OPENAI_API_KEY}
+CMD ["python","app.py"]
+```
+
+---
+
+\## 3 . Add to `docker-compose.yml`
+
+```yaml
+services:
+  web:
+    build: ./apps/web
+    env_file: .env
+    depends_on: [agentpy]
+  agentpy:
+    build: ./services/agentpy
+    ports: ["8002:8002"]
+    env_file: .env
+  rocketpy:           # hi‑fi physics (optional, unchanged)
+    build: ./services/rocketpy
+    ports: ["8000:8000"]
+```
+
+---
+
+\## 4 . Next API proxy (`app/api/agent/route.ts`)
+
+```ts
+import { NextRequest, NextResponse } from "next/server";
+
+export const runtime = "nodejs";
+
+export async function POST(req: NextRequest) {
+  const { history, rocket } = await req.json();
+  const r = await fetch(process.env.AGENT_URL ?? "http://agentpy:8002/reason", {
+    method:"POST",
+    headers:{ "Content-Type":"application/json" },
+    body: JSON.stringify({ messages: history, rocket }),
+  });
+  return new NextResponse(r.body, { status: r.status });
+}
+```
+
+---
+
+\## 5 . Front‑end chat panel (`components/ChatPanel.tsx`)
+
+```tsx
+async function send(msg: string) {
+  const history = [...messages, { role:"user", content: msg }];
+  const res = await fetch("/api/agent", {
+    method:"POST",
+    body: JSON.stringify({ history, rocket: useRocket.getState().rocket })
+  });
+  const json = await res.json();       // { final_output, actions }
+  dispatchActions(JSON.parse(json.actions || "[]"));  // step 6
+  setMessages([...history, { role:"assistant", content: json.final_output }]);
+}
+```
+
+---
+
+\## 6 . Action dispatcher (`lib/ai/actions.ts`)
+
+```ts
+export function dispatchActions(actions: any[]) {
+  const { updateRocket, setSim } = useRocket.getState();
+  actions.forEach((a) => {
+    switch (a.action) {
+      case "add_part":
+        updateRocket((r) => {
+          r.parts.push({ id: crypto.randomUUID(), type: a.type, ...a.props });
+          return r;
+        });
+        break;
+      case "update_part":
+        updateRocket((r) => {
+          const p = r.parts.find((p) => p.id === a.id);
+          if (p) Object.assign(p, a.props);
+          return r;
+        });
+        break;
+      case "run_sim":
+        a.fidelity === "quick"
+          ? runQuickSim()          // client physics
+          : runHighFiSim();        // POST /api/hifi (unchanged)
+        break;
+    }
+  });
+}
+```
+
+---
+
+\## 7 . 3‑D scene, quick sim, high‑fi sim, stability badge
+*(all unchanged from the earlier doc — they react automatically when `updateRocket` or `setSim` fires.)*
+
+---
+
+\## 8 . System prompt (now embedded in Python `Agent`)
+
+Located in `app.py` inside the `Agent()` constructor; adjust wording to your curriculum.
+
+---
+
+\## 9 . Security & cost controls
+
+* **Auth / rate‑limit**: Same Redis counter pattern—guard the **Next API** route.
+* **Token spend**: track `result.token_usage.total_tokens` (Agents SDK returns it) and log per user.
+* **Prompt injection**: Python tools strictly validate params with Pydantic, agent is sandboxed.
+
+---
+
+\## 10 . Test matrix (Vitest on front‑end)
+
+| Scenario               | Expected outcome                                         |
+| ---------------------- | -------------------------------------------------------- |
+| “Add 30 cm ogive nose” | `actions[0].action === "add_part"`; R3F shows new cone.  |
+| “Paint it red”         | `update_part` fired; mesh material color changes.        |
+| “Simulate high”        | `run_sim` with fidelity `"hifi"` → altitude field in UI. |
+| Malicious prompt       | Agent replies “I can’t do that”; no actions array.       |
+
+---
+
+### Quick data flow (new version)
+
+```
+Browser ──chat──▶ Next /api/agent ──REST──▶ Python Agent SDK
+     ▲                │                         │
+     │  actions array ◀┘   (planning + tools)   │
+     │                                           ▼
+ R3F + Zustand  ◀────────────────── sim + UI updates
+```
+
+---
+
+\## 11 . CI & deployment
+
+* Build both images (`web`, `agentpy`); push to registry.
+* Deploy **web** to Vercel / Fly.io, **agentpy** to Cloud Run / Railway.
+* Set `AGENT_URL` env in Vercel to the agent endpoint.
+
+---
+
+\## 12 . Future switch to Node Agents SDK
+
+When OpenAI releases the official **JavaScript Agents SDK**:
+
+1. Copy the three `@function_tool` definitions into a TS file.
+2. Replace `/api/agent` proxy code with the Node runner:
+
+```ts
+import { Agent, Runner } from "openai-agents";
+const agent = new Agent({...});
+const result = await Runner.runAsync({ agent, input: historyWithRocket });
+```
+
+3. Remove `agentpy` service. No other front‑end code changes.
+
+---
+
+### References
+
+* OpenAI Agents SDK docs 
+* Agents SDK tracing (OpenTelemetry) 
+* FastAPI quick‑start
+* Zustand + R3F state pattern (Three.js forum)
+* React‑Three‑Fiber docs
+
+---
+
+With this migration, **all reasoning and tool routing live in a clean Python micro‑service,** giving you built‑in retries, guardrails, and trace inspection, while your Next .js UI stays lean and responsive. Students issue natural‑language commands; the agent returns a bounded set of actions; the 3‑D canvas and physics engine update instantly.
+
+**Ignition sequence complete—lift‑off!** 🚀
