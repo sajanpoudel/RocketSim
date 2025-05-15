@@ -20,6 +20,7 @@ export default function ChatPanel() {
   
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [lastUsedAgent, setLastUsedAgent] = useState<string>('master');
   const chatContainerRef = useRef<HTMLDivElement>(null);
   
   // Auto-scroll chat to bottom on new messages
@@ -93,6 +94,12 @@ export default function ChatPanel() {
         content: json.final_output 
       };
       setMessages([...history, assistantMessage]);
+      
+      // Store which agent was used (for debugging)
+      if (json.agent_used) {
+        setLastUsedAgent(json.agent_used);
+        console.log(`Request handled by agent: ${json.agent_used}`);
+      }
     } catch (error) {
       console.error('Error communicating with agent:', error);
       const errorMessage: ChatMessage = { 
@@ -124,7 +131,14 @@ export default function ChatPanel() {
                   : 'glass-panel rounded-tl-none shadow-md'
               }`}
             >
-              <p className="text-small text-white">{msg.content}</p>
+              {msg.role === 'user' ? (
+                <p className="text-small text-white">{msg.content}</p>
+              ) : (
+                <div 
+                  className="text-small text-white formatted-content"
+                  dangerouslySetInnerHTML={{ __html: msg.content }}
+                />
+              )}
             </div>
           </div>
         ))}
