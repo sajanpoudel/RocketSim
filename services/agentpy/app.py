@@ -51,163 +51,36 @@ def clean_messages(messages):
 
 # Helper function to extract actions from result
 async def extract_actions_from_result(result, message_text, rocket_data):
-    """Safely extract actions from SDK result or fall back to text extraction."""
+    """Extract actions from agent result"""
     actions = []
     
-    # First try to get actions directly from result
-    try:
-        # Check different possible attribute names
-        if hasattr(result, 'actions') and result.actions:
-            actions = result.actions
-        elif hasattr(result, 'tool_calls') and result.tool_calls:
-            # Convert tool calls to actions
-            for tool_call in result.tool_calls:
-                if hasattr(tool_call, 'output') and tool_call.output:
-                    try:
-                        action = json.loads(tool_call.output)
-                        if isinstance(action, dict) and 'action' in action:
-                            actions.append(action)
-                    except:
-                        pass
-    except Exception as e:
-        print(f"Error extracting actions from result: {str(e)}")
-    
-    # If no actions found, check result text for educational content about altitude
-    if not actions:
-        result_text = result.completion if hasattr(result, 'completion') else result.final_output if hasattr(result, 'final_output') else ""
-        
-        # If result contains educational content about altitude but no actions, treat it as an altitude design request
-        altitude_educational_patterns = [
-            r'reach.*altitude.*\d+\s*(?:k?m)',
-            r'design.*rocket.*reach.*\d+\s*(?:k?m)',
-            r'.*(?:motor|engine).*(?:altitude|height)',
-            r'.*factor.*(?:altitude|height)',
-            r'.*(?:altitude|height).*(?:design|reach)',
-        ]
-        
-        if any(re.search(pattern, result_text, re.IGNORECASE) for pattern in altitude_educational_patterns):
-            print("Detected educational content about altitude design, extracting target altitude...")
-            
-            # Extract altitude value from result text or message
-            altitude_patterns = [
-                r'(?:altitude|height).*?(\d+)(?:\.\d+)?\s*km',
-                r'(\d+)(?:\.\d+)?\s*km.*?(?:altitude|height)',
-                r'reach.*?(\d+)(?:\.\d+)?\s*km',
-                r'(\d+)(?:\.\d+)?\s*kilometer'
-            ]
-            
-            target_altitude = None
-            
-            # First check the result text
-            for pattern in altitude_patterns:
-                match = re.search(pattern, result_text, re.IGNORECASE)
-                if match:
-                    target_altitude = float(match.group(1)) * 1000  # Convert to meters
-                    print(f"Extracted target altitude from result text: {target_altitude}m")
-                    break
-            
-            # If not found in result, check the original message
-            if not target_altitude:
-                for pattern in altitude_patterns:
-                    match = re.search(pattern, message_text, re.IGNORECASE)
-                    if match:
-                        target_altitude = float(match.group(1)) * 1000  # Convert to meters
-                        print(f"Extracted target altitude from user message: {target_altitude}m")
-                        break
-            
-            # Common altitude fallbacks if specific value not found
-            if not target_altitude and "50 km" in (result_text.lower() + message_text.lower()):
-                target_altitude = 50000  # 50 km in meters
-            elif not target_altitude and "30 km" in (result_text.lower() + message_text.lower()):
-                target_altitude = 30000  # 30 km in meters
-            
-            # Call design_rocket_for_altitude if we found a target
-            if target_altitude:
-                design_actions = await design_rocket_for_altitude(rocket_data, target_altitude)
-                if design_actions:
-                    actions.extend(design_actions)
-                    # Add simulation action after design changes
-                    actions.append({"action": "run_sim", "fidelity": "hifi"})
-                    return actions  # Return early with the actions
-    
-    # If still no actions found and message contains altitude target, try design_rocket_for_altitude
-    if not actions:
-        # First check for any form of altitude query
-        altitude_keywords = ["altitude", "height", "high", "reach", "meters", "m ", "km", "kilometer", "fly up", "go up", "how high", "how far up"]
-        if any(keyword in message_text.lower() for keyword in altitude_keywords):
-            try:
-                # Extract altitude target from text
-                altitude_patterns = [
-                    # Traditional patterns
-                    r'reach\s+(\d+(?:\.\d+)?)\s*m(?:eters?)?(?:\s+altitude)?', 
-                    r'altitude\s+(?:of\s+)?(\d+(?:\.\d+)?)\s*m',
-                    r'(\d+(?:\.\d+)?)\s*m(?:eters?)?\s+(?:high|altitude)', 
-                    r'design.*?(\d+)m', 
-                    r'[^0-9](\d+)\s*meters?',
-                    r'reach\s+(\d+(?:\.\d+)?)\s*k(?:m|ilometers?)(?:\s+altitude)?', 
-                    r'altitude\s+(?:of\s+)?(\d+(?:\.\d+)?)\s*k(?:m|ilometers?)',
-                    r'(\d+(?:\.\d+)?)\s*k(?:m|ilometers?)?\s+(?:high|altitude)', 
-                    r'design.*?(\d+)k(?:m|ilometers?)', 
-                    r'[^0-9](\d+)\s*k(?:ilo)?m(?:eters?)?',
+    # Check for new_items which contain tool call outputs
+    if hasattr(result, 'new_items'):
+        for item in result.new_items:
+            # Look for ToolCallOutputItem which contains the action
+            if hasattr(item, 'type') and item.type == 'tool_call_output_item':
+                # The output might be a string that needs to be parsed as JSON
+                if hasattr(item, 'output'):
+                    output = item.output
                     
-                    # More flexible patterns
-                    r'(?:fly|flying|flight|go|reach|make\s+it|rocket|height)\s+(?:up|to|of)?\s*(?:to|at|about|around)?\s*(\d+)(?:\.\d+)?\s*(?:km|kilometers|klicks|k)',
-                    r'(?:fly|flying|flight|go|reach|make\s+it|rocket|height)\s+(?:up|to|of)?\s*(?:to|at|about|around)?\s*(\d+)(?:\.\d+)?\s*(?:m|meters)',
-                    r'(\d+)(?:\.\d+)?\s*(?:km|kilometers|klicks|k)\s+(?:high|tall|altitude|height)',
-                    r'(\d+)(?:\.\d+)?\s*(?:m|meters)\s+(?:high|tall|altitude|height)',
-                    r'(?:make|get|ensure|have|build|create).*?(?:fly|going|reaching|achieve).*?(\d+)\s*(?:m|km)',
-                    r'(?:how\s+to|can|possible|way).*?(?:reach|get|achieve).*?(\d+)\s*(?:m|km)'
-                ]
-                
-                found_match = False
-                for i, pattern in enumerate(altitude_patterns):
-                    altitude_match = re.search(pattern, message_text.lower())
-                    if altitude_match:
-                        target_altitude = float(altitude_match.group(1))
-                        # If pattern is for km (indices 5-9 or contains 'k'), convert to meters
-                        if i >= 5 or 'k' in pattern:
-                            target_altitude *= 1000  # Convert km to m
-                        print(f"Extracted target altitude: {target_altitude}m")
-                        found_match = True
-                        
-                        # Call design_rocket_for_altitude directly
-                        design_actions = await design_rocket_for_altitude(rocket_data, target_altitude)
-                        if design_actions:
-                            actions.extend(design_actions)
-                            # Add simulation action after design changes
-                            actions.append({"action": "run_sim", "fidelity": "hifi"})
-                            return actions  # Return early if we found an altitude target
-                        break
-                
-                # If we found keywords but couldn't parse a specific altitude, check for common altitudes
-                if not found_match:
-                    if any(phrase in message_text.lower() for phrase in ["50 km", "50km", "fifty km", "50 kilometers"]):
-                        print("Detected 50km altitude goal without standard pattern match")
-                        design_actions = await design_rocket_for_altitude(rocket_data, 50000)  # 50 km in meters
-                        if design_actions:
-                            actions.extend(design_actions)
-                            actions.append({"action": "run_sim", "fidelity": "hifi"})
-                            return actions
-                    elif "altitude" in message_text.lower() and "km" in message_text.lower():
-                        # Fallback for any altitude with km mention but no specific number
-                        default_altitude = 30000  # 30 km default
-                        print(f"Altitude keywords detected but no specific value, using default {default_altitude}m")
-                        design_actions = await design_rocket_for_altitude(rocket_data, default_altitude)
-                        if design_actions:
-                            actions.extend(design_actions)
-                            actions.append({"action": "run_sim", "fidelity": "hifi"})
-                            return actions
-            except Exception as e:
-                print(f"Error processing altitude design: {str(e)}")
-    
-    # If still no actions, try the general text extraction fallback
-    if not actions:
-        try:
-            extracted_actions = await extract_intent_from_text(message_text, rocket_data)
-            if extracted_actions:
-                return extracted_actions  # Return the extracted actions if any
-        except Exception as e:
-            print(f"Error extracting intent from text: {str(e)}")
+                    # If output is a string, try to parse it as JSON
+                    if isinstance(output, str):
+                        try:
+                            parsed_output = json.loads(output)
+                            if isinstance(parsed_output, dict) and 'action' in parsed_output:
+                                actions.append(parsed_output)
+                            elif isinstance(parsed_output, list):
+                                # Handle case where output is a list of actions
+                                for action in parsed_output:
+                                    if isinstance(action, dict) and 'action' in action:
+                                        actions.append(action)
+                        except json.JSONDecodeError:
+                            # If it's not valid JSON, skip this item
+                            continue
+                    
+                    # If output is already a dict with action
+                    elif isinstance(output, dict) and 'action' in output:
+                        actions.append(output)
     
     return actions
 
@@ -324,9 +197,6 @@ async def reason(req: ChatRequest):
         cleaned_messages = clean_messages(req.messages)
         latest_message = cleaned_messages[-1]["content"] if cleaned_messages else ""
         
-        print("\n⭐️ PROCESSING NEW REQUEST ⭐️")
-        print(f"User message: {latest_message[:100]}...")
-        
         # Prepare the context with the current rocket state
         system_message = {"role": "system", "content": f"CURRENT_ROCKET_JSON\n{json.dumps(req.rocket)}"}
         messages = [system_message] + cleaned_messages
@@ -337,7 +207,6 @@ async def reason(req: ChatRequest):
         agent_flow.append({"agent": "router", "role": "dispatcher", "timestamp": str(datetime.now())})
         
         # First, use the router agent to determine which specialized agent to use
-        print("\n📋 STEP 1: ROUTING REQUEST")
         router_runner = Runner()
         router_result = await router_runner.run(
             router_agent,
@@ -347,7 +216,6 @@ async def reason(req: ChatRequest):
         
         # Get the routed agent name
         routed_agent_name = router_result.completion.strip().lower() if hasattr(router_result, 'completion') else router_result.final_output.strip().lower() if hasattr(router_result, 'final_output') else ""
-        print(f"🔀 Router directed query to: {routed_agent_name}")
         
         # Track which agents will execute
         primary_agent_name = "master"  # Default
@@ -365,7 +233,6 @@ async def reason(req: ChatRequest):
         
         # If router didn't identify a QA query but it looks like one, override
         if is_likely_qa and routed_agent_name not in ["qa", "metrics"]:
-            print(f"📊 Detected analysis query pattern. Overriding router decision '{routed_agent_name}' to use QA agent.")
             routed_agent_name = "qa"
         
         # Check if the router identified a valid agent
@@ -375,7 +242,6 @@ async def reason(req: ChatRequest):
             primary_agent_name = routed_agent_name
             agent_flow.append({"agent": primary_agent_name, "role": "primary", "timestamp": str(datetime.now())})
             
-            print(f"\n🚀 STEP 2: RUNNING PRIMARY AGENT ({primary_agent_name.upper()})")
             runner = Runner()
             primary_result = await runner.run(
                 specialized_agent,
@@ -386,7 +252,6 @@ async def reason(req: ChatRequest):
             # Extract actions from the primary agent
             primary_actions = await extract_actions_from_result(primary_result, cleaned_messages[-1]["content"], req.rocket)
             all_actions.extend(primary_actions)
-            print(f"📋 Primary agent returned {len(primary_actions)} actions")
             
             # For certain design tasks, add appropriate secondary agents
             design_needs_sim = False
@@ -394,7 +259,7 @@ async def reason(req: ChatRequest):
             
             # For QA/metrics agent, we normally don't need secondary agents
             if primary_agent_name in ["qa", "metrics"]:
-                print(f"ℹ️ {primary_agent_name} agent is analysis-only, no secondary agents needed")
+                pass  # No secondary agents needed
             
             # Analyze if this is a substantial design change that needs sim/metrics follow-up
             elif primary_agent_name == "design" and primary_actions:
@@ -404,7 +269,6 @@ async def reason(req: ChatRequest):
                         # Motor changes definitely need simulation and metrics
                         design_needs_sim = True
                         design_needs_metrics = True
-                        print(f"🔍 Detected motor change, will add sim+metrics agents")
                     
                     # Substantial body/nose/fin changes
                     elif action.get('action') == 'update_part':
@@ -412,13 +276,11 @@ async def reason(req: ChatRequest):
                         if any(k in props for k in ['length', 'Ø', 'baseØ', 'root', 'span', 'sweep', 'shape']):
                             design_needs_sim = True
                             design_needs_metrics = True
-                            print(f"🔍 Detected dimensional changes, will add sim+metrics agents")
                     
                     # Adding new parts
                     elif action.get('action') == 'add_part':
                         design_needs_sim = True
                         design_needs_metrics = True
-                        print(f"🔍 Detected part addition, will add sim+metrics agents")
                 
                 # Also check message content for certain topics
                 if any(word in latest_message.lower() for word in 
@@ -426,11 +288,9 @@ async def reason(req: ChatRequest):
                         "stability", "stable", "perform", "aerodynamic", "drag", "speed", "velocity"]):
                     design_needs_sim = True
                     design_needs_metrics = True
-                    print(f"🔍 Detected performance-related keywords, will add sim+metrics agents")
             
             # Add secondary agents based on the analysis
             if design_needs_sim:
-                print(f"\n📊 STEP 3A: RUNNING SIMULATION AGENT")
                 # Add sim agent as secondary
                 secondary_agents.append("sim")
                 agent_flow.append({"agent": "sim", "role": "secondary", "timestamp": str(datetime.now())})
@@ -447,10 +307,8 @@ async def reason(req: ChatRequest):
                 # Extract additional actions from sim agent
                 sim_actions = await extract_actions_from_result(sim_result, "run simulation", req.rocket)
                 all_actions.extend(sim_actions)
-                print(f"📋 Simulation agent returned {len(sim_actions)} actions")
             
             if design_needs_metrics:
-                print(f"\n📏 STEP 3B: RUNNING METRICS AGENT")
                 # Add metrics agent as secondary
                 agent_flow.append({"agent": "metrics", "role": "secondary", "timestamp": str(datetime.now())})
                 secondary_agents.append("metrics")
@@ -461,10 +319,8 @@ async def reason(req: ChatRequest):
                     context={"current_rocket_json_str": rocket_json_str, "design_actions": json.dumps(primary_actions)}
                 )
                 secondary_results["metrics"] = metrics_result
-                print(f"📋 Metrics agent completed analysis")
         else:
             # Fall back to master agent if router couldn't identify a specialized agent
-            print(f"\n🧠 STEP 2: FALLING BACK TO MASTER AGENT (router returned: '{routed_agent_name}')")
             agent_flow.append({"agent": "master", "role": "primary", "timestamp": str(datetime.now())})
             runner = Runner()
             primary_result = await runner.run(
@@ -476,7 +332,6 @@ async def reason(req: ChatRequest):
             # Extract actions using the helper function
             primary_actions = await extract_actions_from_result(primary_result, cleaned_messages[-1]["content"], req.rocket)
             all_actions.extend(primary_actions)
-            print(f"📋 Master agent returned {len(primary_actions)} actions")
         
         # Ensure we have a primary result
         result = primary_result
@@ -486,11 +341,6 @@ async def reason(req: ChatRequest):
         
         # Get output texts from all agents involved
         primary_output = result.completion if hasattr(result, 'completion') else result.final_output if hasattr(result, 'final_output') else str(result)
-        
-        print(f"\n✅ RESPONSE GENERATION")
-        print(f"Primary agent: {primary_agent_name}")
-        print(f"Secondary agents: {secondary_agents}")
-        print(f"Total actions: {len(all_actions)}")
         
         # First enhance raw text with markdown formatting
         # Apply bold to key terms

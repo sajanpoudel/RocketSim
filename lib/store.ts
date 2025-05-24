@@ -18,7 +18,7 @@ export const DEFAULT_ROCKET: Rocket = {
       id: crypto.randomUUID(),
       type: 'body',
       color: '#8C8D91',
-      Ø: 5,
+      Ø: 10,
       length: 40
     },
     {
@@ -28,6 +28,13 @@ export const DEFAULT_ROCKET: Rocket = {
       root: 10,
       span: 8,
       sweep: 6
+    },
+    {
+      id: crypto.randomUUID(),
+      type: 'engine',
+      color: '#0066FF',
+      thrust: 32,
+      Isp: 200
     }
   ],
   motorId: 'default-motor',

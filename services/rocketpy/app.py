@@ -8,10 +8,10 @@ from typing import List, Dict, Any, Optional, Tuple, Union
 
 # Import RocketPy
 try:
-    from rocketpy import Environment, SolidMotor, Rocket, Flight
+    from rocketpy import Environment, SolidMotor, Rocket, Flight, GenericMotor
 except ImportError:
     print("Warning: RocketPy not installed, using simplified simulation model")
-    Environment, SolidMotor, Rocket, Flight = None, None, None, None
+    Environment, SolidMotor, Rocket, Flight, GenericMotor = None, None, None, None, None
 
 app = FastAPI()
 
@@ -56,6 +56,83 @@ MOTORS = {
         "length": 124,  # mm
         "propellantMass": 0.04,  # kg
         "totalMass": 0.07,  # kg
+    },
+    "mini-motor": {
+        "name": "Mini Motor",
+        "manufacturer": "Generic",
+        "thrust": 15,  # N
+        "burnTime": 1.8,  # s
+        "totalImpulse": 27,  # Ns
+        "diameter": 24,  # mm
+        "length": 100,  # mm
+        "propellantMass": 0.010,  # kg
+        "totalMass": 0.018,  # kg
+    },
+    "high-power": {
+        "name": "High Power",
+        "manufacturer": "Generic",
+        "thrust": 60,  # N
+        "burnTime": 3.2,  # s
+        "totalImpulse": 192,  # Ns
+        "diameter": 38,  # mm
+        "length": 150,  # mm
+        "propellantMass": 0.090,  # kg
+        "totalMass": 0.115,  # kg
+    },
+    "super-power": {
+        "name": "Super Power",
+        "manufacturer": "Generic",
+        "thrust": 120,  # N
+        "burnTime": 4.0,  # s
+        "totalImpulse": 480,  # Ns
+        "diameter": 54,  # mm
+        "length": 200,  # mm
+        "propellantMass": 0.200,  # kg
+        "totalMass": 0.250,  # kg
+    },
+    "small-liquid": {
+        "name": "Small Liquid",
+        "manufacturer": "Generic",
+        "thrust": 500,  # N
+        "burnTime": 30,  # s
+        "totalImpulse": 15000,  # Ns
+        "diameter": 75,  # mm
+        "length": 300,  # mm
+        "propellantMass": 1.5,  # kg
+        "totalMass": 2.3,  # kg
+    },
+    "medium-liquid": {
+        "name": "Medium Liquid",
+        "manufacturer": "Generic",
+        "thrust": 2000,  # N
+        "burnTime": 45,  # s
+        "totalImpulse": 90000,  # Ns
+        "diameter": 100,  # mm
+        "length": 400,  # mm
+        "propellantMass": 6.5,  # kg
+        "totalMass": 8.5,  # kg
+    },
+    "large-liquid": {
+        "name": "Large Liquid",
+        "manufacturer": "Generic",
+        "thrust": 8000,  # N
+        "burnTime": 15,  # s - More realistic burn time
+        "totalImpulse": 120000,  # Ns - Adjusted total impulse
+        "diameter": 150,  # mm
+        "length": 500,  # mm
+        "propellantMass": 8.0,  # kg - Reduced propellant mass
+        "totalMass": 11.0,  # kg - Adjusted total mass
+    },
+    "hybrid-engine": {
+        "name": "Hybrid Engine",
+        "manufacturer": "Generic",
+        "thrust": 1200,  # N
+        "burnTime": 20,  # s
+        "totalImpulse": 24000,  # Ns
+        "diameter": 90,  # mm
+        "length": 350,  # mm
+        "propellantMass": 4.5,  # kg
+        "totalMass": 5.7,  # kg
     }
 }
 
@@ -83,15 +160,60 @@ def simulate_with_rocketpy(rocket_input: RocketInput) -> SimulationResult:
     
     # Create a motor
     motor_data = MOTORS.get(rocket_input.motorId, MOTORS["default-motor"])
-    motor = SolidMotor(
-        motor_data["name"],
-        motor_data["thrust"],
-        motor_data["burnTime"],
-        motor_data["totalImpulse"],
-        motor_data["propellantMass"],
-        motor_data["totalMass"],
-        motor_data["diameter"] / 1000,  # convert mm to m
-    )
+    
+    # Determine motor type from the motor ID
+    motor_type = "solid"  # default
+    if "liquid" in rocket_input.motorId:
+        motor_type = "liquid"
+    elif "hybrid" in rocket_input.motorId:
+        motor_type = "hybrid"
+    
+    # Create motor based on type
+    if motor_type == "solid":
+        # Create solid motor with proper RocketPy parameters
+        motor = SolidMotor(
+            thrust_source=motor_data["thrust"],  # Constant thrust
+            dry_mass=motor_data["totalMass"] - motor_data["propellantMass"],  # kg
+            dry_inertia=(0.125, 0.125, 0.002),  # Simplified inertia
+            nozzle_radius=motor_data["diameter"] / 2000,  # Convert mm to m, then radius
+            grain_number=1,  # Single grain
+            grain_density=1815,  # kg/m³ - typical solid propellant density
+            grain_outer_radius=motor_data["diameter"] / 2000 - 0.002,  # Slightly smaller than motor
+            grain_initial_inner_radius=0.005,  # 5mm initial inner radius
+            grain_initial_height=motor_data["length"] / 1000 * 0.8,  # 80% of motor length
+            grain_separation=0.005,  # 5mm separation
+            grains_center_of_mass_position=0.0,  # Center position
+            center_of_dry_mass_position=0.0,  # Center position
+            nozzle_position=0,  # Bottom of motor
+            burn_time=motor_data["burnTime"],  # Burn time
+            throat_radius=motor_data["diameter"] / 4000,  # Throat radius (quarter of diameter)
+            coordinate_system_orientation="nozzle_to_combustion_chamber",
+        )
+    else:
+        # For liquid and hybrid motors, use a simplified GenericMotor approach
+        # Create a thrust curve as a simple constant thrust profile
+        thrust_curve = [
+            (0, 0),
+            (0.1, motor_data["thrust"]),
+            (motor_data["burnTime"] - 0.1, motor_data["thrust"]),
+            (motor_data["burnTime"], 0)
+        ]
+        
+        # Use GenericMotor for liquid/hybrid motors
+        motor = GenericMotor(
+            thrust_source=thrust_curve,
+            burn_time=motor_data["burnTime"],
+            chamber_radius=motor_data["diameter"] / 2000,  # Convert mm to m, then radius
+            chamber_height=motor_data["length"] / 1000 * 0.8,  # 80% of motor length
+            chamber_position=0.0,  # Center position
+            propellant_initial_mass=motor_data["propellantMass"],
+            nozzle_radius=motor_data["diameter"] / 2000,
+            dry_mass=motor_data["totalMass"] - motor_data["propellantMass"],
+            center_of_dry_mass_position=0.0,
+            dry_inertia=(0.125, 0.125, 0.002),
+            nozzle_position=0,
+            coordinate_system_orientation="nozzle_to_combustion_chamber",
+        )
     
     # Extract rocket parameters
     nose_part = next((p for p in rocket_input.parts if p.type == "nose"), None)
@@ -111,6 +233,7 @@ def simulate_with_rocketpy(rocket_input: RocketInput) -> SimulationResult:
         inertia=(0, 0, 0),  # Will be updated
         power_off_drag=rocket_input.Cd,
         power_on_drag=rocket_input.Cd,
+        center_of_mass_without_motor=total_length / 2,  # Center of rocket
     )
     
     # Add the motor
@@ -120,6 +243,7 @@ def simulate_with_rocketpy(rocket_input: RocketInput) -> SimulationResult:
     rocket.add_nose(
         length=nose_length,
         kind=nose_part.shape if nose_part and nose_part.shape else "ogive",
+        position=total_length,  # Nose tip position (top of rocket)
     )
     
     # Add fins if present
@@ -129,17 +253,19 @@ def simulate_with_rocketpy(rocket_input: RocketInput) -> SimulationResult:
             n=len(fin_parts),
             span=fin.span if fin.span else 0.08,
             root_chord=fin.root if fin.root else 0.1,
-            sweep=fin.sweep if fin.sweep else 0.05,
+            tip_chord=(fin.root if fin.root else 0.1) * 0.5,  # Tip chord is half of root
+            position=0.1,  # Position near the bottom of the rocket
+            sweep_length=fin.sweep if fin.sweep else 0.05,
         )
     
     # Configure mass
-    rocket.mass = rocket.mass_empty + motor.total_mass
+    rocket.mass = rocket.dry_mass + motor.total_mass
     
     # Simulate the flight
     flight = Flight(
         rocket=rocket,
         environment=env,
-        elevation=0,
+        rail_length=1.0,  # 1 meter rail length
         heading=90,
     )
     
@@ -150,7 +276,7 @@ def simulate_with_rocketpy(rocket_input: RocketInput) -> SimulationResult:
     stability_margin = rocket.static_margin
     
     # Extract thrust curve
-    thrust_curve = [(t, thrust) for t, thrust in zip(flight.out.time, flight.out.thrust)]
+    thrust_curve = [(float(t), float(thrust)) for t, thrust in zip(flight.time, flight.net_thrust)]
     
     return SimulationResult(
         maxAltitude=max_altitude,

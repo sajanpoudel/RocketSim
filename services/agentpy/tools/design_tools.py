@@ -33,20 +33,35 @@ def update_rocket(props: Dict[str, Any]) -> Dict[str, Any]:
     return {"action": "update_rocket", "props": validated_props}
 
 @function_tool(strict_mode=False)
-async def altitude_design_tool(rocket_data: Dict[str, Any], target_altitude: float) -> List[Dict[str, Any]]:
+async def altitude_design_tool(target_altitude: float, rocket_data: Dict[str, Any] = None) -> str:
     """
     Designs rocket components and selects a motor to achieve a target altitude.
     This tool performs comprehensive modifications to all relevant rocket parts
     to optimize for the specified altitude target.
     
     Args:
-        rocket_data: Current rocket configuration
         target_altitude: Target altitude in meters
+        rocket_data: Current rocket configuration (optional, will use default if not provided)
         
     Returns:
-        List of actions to modify parts, update motor, and simulate
+        JSON string of actions to modify parts, update motor, and simulate
     """
     print(f"⭐ ALTITUDE DESIGN TOOL CALLED: Target = {target_altitude}m")
+    
+    # Use default rocket data if not provided
+    if rocket_data is None:
+        rocket_data = {
+            "id": "rocket1",
+            "name": "Default Rocket",
+            "parts": [
+                {"id": "nose1", "type": "nose", "color": "red", "shape": "ogive", "length": 15, "baseØ": 5},
+                {"id": "body1", "type": "body", "color": "white", "Ø": 5, "length": 40},
+                {"id": "finset1", "type": "fin", "color": "blue", "root": 8, "span": 6, "sweep": 2}
+            ],
+            "motorId": "C6-5",
+            "Cd": 0.75,
+            "units": "metric"
+        }
     
     # Create default parts if rocket is empty
     actions = []
@@ -70,7 +85,8 @@ async def altitude_design_tool(rocket_data: Dict[str, Any], target_altitude: flo
     if not any(a.get("action") == "run_sim" and a.get("fidelity") == "hifi" for a in actions):
         actions.append({"action": "run_sim", "fidelity": "hifi"})
     
-    return actions
+    # Return as JSON string since that's what the agent expects
+    return json.dumps(actions)
 
 
 

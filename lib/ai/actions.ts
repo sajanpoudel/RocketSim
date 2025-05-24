@@ -6,6 +6,8 @@ export function runQuickSim() {
   // Client-side physics simulation using rocket data from store
   const { rocket, setSim } = useRocket.getState();
   
+  console.log('🚀 Running quick simulation with rocket:', rocket);
+  
   // Get motor data (in production, this would come from a motor database)
   // Define our complete propulsion systems database
   const propulsionSystems = {
@@ -89,12 +91,16 @@ export function runQuickSim() {
   const burnTime = selectedMotor.burnTime;
   const isp = selectedMotor.isp;
   
+  console.log('🔧 Selected motor:', selectedMotor);
+  
   // Calculate mass based on parts
   const mass = estimateRocketMass(rocket);
   
   // Add engine mass
   const totalMass = mass + selectedMotor.dryMass + selectedMotor.propellantMass;
   const dragCoefficient = rocket.Cd;
+  
+  console.log('📊 Mass calculations:', { mass, totalMass, dragCoefficient });
   
   // More sophisticated physics calculations
   let maxAltitude, maxVelocity;
@@ -138,14 +144,24 @@ export function runQuickSim() {
   // Calculate stability margin (calibers)
   const stabilityMargin = calculateStability(rocket);
   
+  console.log('📈 Simulation results:', { maxAltitude, maxVelocity, stabilityMargin, motorThrust });
+  
   // Set simulation results in store
-  setSim({
+  const simResults = {
     maxAltitude,
     maxVelocity,
     apogeeTime: maxVelocity / 9.8,
     stabilityMargin,
     motorThrust // Add the motor thrust to the simulation data
-  });
+  };
+  
+  console.log('💾 Setting simulation results in store:', simResults);
+  setSim(simResults);
+  
+  // Dispatch event to notify UI components
+  window.dispatchEvent(new CustomEvent('simulationComplete', { 
+    detail: simResults 
+  }));
 }
 
 // Function to run a high-fidelity simulation (server-side)
@@ -251,87 +267,79 @@ export function calculateStability(rocket: any) {
 
 // Main dispatcher function to process agent actions
 export function dispatchActions(actions: any[]) {
-  if (!actions || !Array.isArray(actions) || actions.length === 0) {
-    console.log('No actions to dispatch');
-    return;
-  }
-  
-  console.log('Dispatching actions:', JSON.stringify(actions, null, 2));
   const { updateRocket, setSim } = useRocket.getState();
   
+  console.log('🎯 Dispatching actions:', actions);
+  
   actions.forEach((a) => {
+    console.log('🔄 Processing action:', a);
+    
+    // Dispatch event for UI components to react to agent actions
+    window.dispatchEvent(new CustomEvent('agentAction', { 
+      detail: { action: a.action, ...a } 
+    }));
+    
     switch (a.action) {
       case "add_part":
-        console.log(`Adding part of type ${a.type} with properties:`, JSON.stringify(a.props, null, 2));
+        console.log('➕ Adding part:', a.type, a.props);
         updateRocket((r) => {
-          // Create a new part with the appropriate type and props
-          const newPart: Partial<Part> = {
-            id: crypto.randomUUID(),
-            type: a.type,
-            color: a.props.color || "#FFFFFF",
-            ...a.props
-          };
-          
-          // Add the new part to the rocket
-          r.parts.push(newPart as Part);
+          r.parts.push({ id: crypto.randomUUID(), type: a.type, ...a.props });
           return r;
         });
         break;
-        
-      case "update_part":
-        if (a.id === "all" && a.props.color) {
-          console.log(`Updating color of ALL parts to: ${a.props.color}`);
-          updateRocket((r) => {
-            // Special case for updating all parts (e.g., when painting the whole rocket)
-            r.parts.forEach(part => {
-              part.color = a.props.color;
-            });
-            return r;
-          });
-        } else {
-          console.log(`Updating part with ID ${a.id} with properties:`, JSON.stringify(a.props, null, 2));
-          updateRocket((r) => {
-            // Find the part to update
-            const partIndex = r.parts.findIndex((p) => p.id === a.id);
-            if (partIndex !== -1) {
-              console.log(`Found part at index ${partIndex}, updating with new properties`);
-              // Update the part with new properties
-              r.parts[partIndex] = { 
-                ...r.parts[partIndex], 
-                ...a.props 
-              };
-            } else {
-              console.warn(`Part with ID ${a.id} not found, update skipped`);
-            }
-            return r;
-          });
-        }
-        break;
-        
-      case "run_sim":
-        console.log(`Running ${a.fidelity} simulation`);
-        if (a.fidelity === "quick") {
-          runQuickSim();
-        } else {
-          runHighFiSim();
-        }
-        break;
-        
       case "update_rocket":
-        console.log(`Updating rocket properties:`, JSON.stringify(a.props, null, 2));
+        console.log('🚀 Updating rocket properties:', a.props);
         updateRocket((r) => {
-          // Update properties directly on the rocket object
           Object.assign(r, a.props);
           return r;
         });
         break;
+      case "update_part":
+        console.log('🔧 Updating part:', a.id, a.props);
+        updateRocket((r) => {
+          // First try to find by exact ID
+          let p = r.parts.find((p) => p.id === a.id);
+          
+          // If not found by ID, try to find by type (for agent compatibility)
+          if (!p) {
+            // Map common agent IDs to part types
+            const typeMap: { [key: string]: string } = {
+              'body1': 'body',
+              'nose1': 'nose', 
+              'finset1': 'fin',
+              'engine1': 'engine'
+            };
+            
+            const targetType = typeMap[a.id] || a.id;
+            p = r.parts.find((part) => part.type === targetType);
+            
+            if (p) {
+              console.log(`🔄 Found part by type: ${a.id} -> ${targetType} (actual ID: ${p.id})`);
+            }
+          }
+          
+          if (p) {
+            Object.assign(p, a.props);
+            console.log(`✅ Updated part:`, p);
+          } else {
+            console.warn(`❌ Part not found: ${a.id}`);
+          }
+          return r;
+        });
+        break;
+      case "run_sim":
+        console.log('🚀 Running simulation with fidelity:', a.fidelity);
+        // Dispatch specific event for simulation actions
+        window.dispatchEvent(new CustomEvent('agentAction', { 
+          detail: { action: 'run_sim', type: 'simulation', showMetrics: true } 
+        }));
         
+        a.fidelity === "quick"
+          ? runQuickSim()          // client physics
+          : runHighFiSim();        // POST /api/hifi (unchanged)
+        break;
       default:
-        console.warn('Unknown action:', a.action);
+        console.log('❓ Unknown action:', a.action);
     }
   });
-  
-  // Log the updated rocket state
-  const updatedRocket = useRocket.getState().rocket;
-  console.log('Updated rocket state:', JSON.stringify(updatedRocket, null, 2));
 } 

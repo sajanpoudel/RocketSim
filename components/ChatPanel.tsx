@@ -42,6 +42,46 @@ export default function ChatPanel() {
     { id: '5', text: 'Paint it red' },
   ];
   
+  // Format content for better display
+  function formatContent(content: string): string {
+    // Try to detect and format JSON content
+    if (content.includes('{"') && content.includes('"}')) {
+      try {
+        // Extract JSON parts and format them
+        const jsonRegex = /\{[^{}]*"[^"]*"[^{}]*\}/g;
+        let formattedContent = content;
+        
+        const jsonMatches = content.match(jsonRegex);
+        if (jsonMatches) {
+          jsonMatches.forEach(jsonStr => {
+            try {
+              const parsed = JSON.parse(jsonStr);
+              let formatted = '<div class="bg-black/20 rounded-lg p-3 my-2 border-l-4 border-blue-500">';
+              
+              Object.entries(parsed).forEach(([key, value]) => {
+                const displayKey = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                formatted += `<div class="mb-2"><strong class="text-blue-300">${displayKey}:</strong><br/>`;
+                formatted += `<span class="text-white/90">${value}</span></div>`;
+              });
+              
+              formatted += '</div>';
+              formattedContent = formattedContent.replace(jsonStr, formatted);
+            } catch (e) {
+              // If parsing fails, leave as is
+            }
+          });
+        }
+        
+        return formattedContent;
+      } catch (e) {
+        // If formatting fails, return original
+        return content;
+      }
+    }
+    
+    return content;
+  }
+  
   // Send message to AI service
   async function sendMessage(msg: string) {
     if (!msg.trim()) return;
@@ -131,23 +171,23 @@ export default function ChatPanel() {
   }
   
   return (
-    <div className="h-full flex flex-col">
+    <div className="h-full flex flex-col w-full">
       {/* Chat messages */}
       <div 
         ref={chatContainerRef} 
-        className="flex-1 overflow-y-auto p-3 space-y-4"
+        className="flex-1 overflow-y-auto p-3 space-y-4 w-full"
       >
         {messages.map((msg, index) => (
           <div 
             key={index} 
-            className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+            className={`flex w-full ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
           >
             <div 
-              className={`max-w-[80%] rounded-2xl px-4 py-3 ${
+              className={`rounded-2xl px-4 py-3 ${
                 msg.role === 'user' 
-                  ? 'bg-white bg-opacity-25 rounded-tr-none shadow-lg' 
-                  : 'glass-panel rounded-tl-none shadow-md'
-              }`}
+                  ? 'bg-white bg-opacity-25 rounded-tr-none shadow-lg ml-4 self-end' 
+                  : 'glass-panel rounded-tl-none shadow-md mr-4 self-start'
+              } ${msg.role === 'user' ? 'max-w-[80%]' : 'w-[95%]'}`}
             >
               {msg.role === 'user' ? (
                 <p className="text-small text-white">{msg.content}</p>
@@ -159,8 +199,12 @@ export default function ChatPanel() {
                     </div>
                   )}
                   <div 
-                    className="text-small text-white formatted-content"
-                    dangerouslySetInnerHTML={{ __html: msg.content }}
+                    className="text-small text-white formatted-content w-full"
+                    style={{
+                      overflowWrap: 'break-word',
+                      wordWrap: 'break-word'
+                    }}
+                    dangerouslySetInnerHTML={{ __html: formatContent(msg.content) }}
                   />
                 </div>
               )}
@@ -169,8 +213,8 @@ export default function ChatPanel() {
         ))}
         
         {isLoading && (
-          <div className="flex justify-start">
-            <div className="glass-panel rounded-2xl rounded-tl-none px-4 py-3 shadow-md">
+          <div className="flex justify-start w-full">
+            <div className="glass-panel rounded-2xl rounded-tl-none px-4 py-3 shadow-md mr-4 max-w-[95%]">
               <div className="flex flex-col items-center space-y-2">
                 <div className="flex space-x-2">
                   <div className="w-2 h-2 rounded-full bg-white animate-pulse" />
@@ -196,8 +240,8 @@ export default function ChatPanel() {
       </div>
       
       {/* Suggestions */}
-      <div className="p-2 border-t border-opacity-10" style={{ borderColor: 'rgba(255, 255, 255, 0.1)' }}>
-        <div className="flex overflow-x-auto pb-2 space-x-2">
+      <div className="p-2 border-t border-opacity-10 w-full" style={{ borderColor: 'rgba(255, 255, 255, 0.1)' }}>
+        <div className="flex flex-wrap gap-2 pb-2 w-full">
           {suggestedCommands.map(cmd => (
             <button
               key={cmd.id}
@@ -211,8 +255,8 @@ export default function ChatPanel() {
       </div>
       
       {/* Input area */}
-      <div className="p-3 border-t border-opacity-20" style={{ borderColor: 'rgba(255, 255, 255, 0.1)' }}>
-        <div className="flex">
+      <div className="p-3 border-t border-opacity-20 w-full" style={{ borderColor: 'rgba(255, 255, 255, 0.1)' }}>
+        <div className="flex w-full">
           <input
             type="text"
             className="flex-1 glass-panel-surface rounded-l-full px-4 py-2 text-small focus:outline-none"

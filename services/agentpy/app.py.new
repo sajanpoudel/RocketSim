@@ -1,0 +1,70 @@
+import os, json, uvicorn
+from fastapi import FastAPI
+from pydantic import BaseModel
+from agents import Agent, Runner, function_tool
+
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
+# ---------- Pydantic replicas of the TS types -------------
+class Part(BaseModel):
+    id: str
+    type: str
+    color: str | None = "white"
+    props: dict
+
+class Rocket(BaseModel):
+    id: str
+    name: str
+    parts: list[Part]
+    motorId: str
+    Cd: float
+    units: str = "metric"
+
+# ---------- Agent tools -----------------------------------
+@function_tool
+def add_part(type: str, props: dict) -> str:
+    """Insert a new rocket component."""
+    return json.dumps({"action": "add_part", "type": type, "props": props})
+
+@function_tool
+def update_part(id: str, props: dict) -> str:
+    """Modify an existing component."""
+    return json.dumps({"action": "update_part", "id": id, "props": props})
+
+@function_tool
+def run_simulation(fidelity: str) -> str:
+    """Run a simulation ('quick' or 'hifi')."""
+    return json.dumps({"action": "run_sim", "fidelity": fidelity})
+
+TOOLS = [add_part, update_part, run_simulation]
+
+agent = Agent(
+    name="Rocket‑Cursor AI",
+    instructions=(
+        "You are an expert assistant for model‑rocket design. "
+        "Always inspect CURRENT_ROCKET_JSON and decide which tool to call. "
+        "If apogee < 100 m, suggest improvements."
+    ),
+    tools=TOOLS,
+    model="gpt-4o-mini",
+    temperature=0.6,
+)
+
+app = FastAPI()
+
+class ChatRequest(BaseModel):
+    messages: list   # [{role:'user',content:'...'}, …]
+    rocket: Rocket
+
+@app.post("/reason")
+async def reason(req: ChatRequest):
+    start = [
+        {"role":"system",
+         "content":"CURRENT_ROCKET_JSON\n"+req.rocket.model_dump_json()}
+    ] + req.messages
+
+    result = await Runner.run_async(agent=agent, input=start, stream=False)
+    return result.dict()          # => {final_output, actions, trace_url}
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8002) 

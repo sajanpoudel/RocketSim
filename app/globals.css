@@ -273,4 +273,10 @@
   margin-top: 1.5rem;
   margin-bottom: 1rem;
   color: #fff;
+}
+
+/* Vertical text for collapsed panels */
+.writing-mode-vertical {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
 } 
