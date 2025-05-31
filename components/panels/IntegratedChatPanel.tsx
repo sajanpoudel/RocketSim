@@ -25,9 +25,9 @@ function MetricCard({ title, value, unit, color }: {
   color: string;
 }) {
   return (
-    <div className={`${color} rounded-lg p-2`}>
-      <div className="text-xs text-white/70 mb-1">{title}</div>
-      <div className="text-sm font-bold text-white">
+    <div className={`${color} rounded-lg p-3 min-w-0`}>
+      <div className="text-xs text-white/70 mb-1 truncate">{title}</div>
+      <div className="text-sm font-bold text-white truncate">
         {formatNumber(value)}{unit}
       </div>
     </div>
@@ -44,9 +44,9 @@ function PerformanceBar({ title, value, max, color }: {
   const percentage = Math.min((value / max) * 100, 100);
   
   return (
-    <div>
+    <div className="min-w-0">
       <div className="flex justify-between text-xs mb-1">
-        <span className="text-white/70">{title}</span>
+        <span className="text-white/70 truncate">{title}</span>
         <span className="text-white">{formatNumber(value)}</span>
       </div>
       <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
@@ -62,7 +62,7 @@ function PerformanceBar({ title, value, max, color }: {
   );
 }
 
-// Intelligent metrics summary that appears inline with chat
+// Enhanced metrics summary with better spacing and overflow handling
 function InlineMetricsSummary({ metrics, isExpanded, onToggle }: {
   metrics: any;
   isExpanded: boolean;
@@ -79,14 +79,14 @@ function InlineMetricsSummary({ metrics, isExpanded, onToggle }: {
         onClick={onToggle}
         layout
       >
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse"></div>
-            <span className="text-sm font-medium text-white">Flight Performance</span>
+        <div className="flex items-center justify-between min-w-0">
+          <div className="flex items-center space-x-3 min-w-0">
+            <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse flex-shrink-0"></div>
+            <span className="text-sm font-medium text-white truncate">Flight Performance</span>
           </div>
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-4 flex-shrink-0">
             {/* Key metrics always visible */}
-            <div className="flex items-center space-x-3 text-xs">
+            <div className="hidden sm:flex items-center space-x-3 text-xs">
               <span className="text-blue-300">{formatNumber(metrics.apogee)}m</span>
               <span className="text-green-300">{formatNumber(metrics.thrust)}N</span>
               <span className="text-purple-300">{formatNumber(metrics.thrustToWeight)}T/W</span>
@@ -94,6 +94,7 @@ function InlineMetricsSummary({ metrics, isExpanded, onToggle }: {
             <motion.div
               animate={{ rotate: isExpanded ? 180 : 0 }}
               transition={{ duration: 0.2 }}
+              className="flex-shrink-0"
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <polyline points="6,9 12,15 18,9"></polyline>
@@ -114,8 +115,8 @@ function InlineMetricsSummary({ metrics, isExpanded, onToggle }: {
             className="overflow-hidden"
           >
             <div className="px-3 pb-3 space-y-3">
-              {/* Performance grid */}
-              <div className="grid grid-cols-3 gap-2">
+              {/* Performance grid with better responsive layout */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 <MetricCard title="Apogee" value={metrics.apogee} unit="m" color="bg-blue-500/20" />
                 <MetricCard title="Max Speed" value={metrics.velocity} unit="m/s" color="bg-green-500/20" />
                 <MetricCard title="Thrust" value={metrics.thrust} unit="N" color="bg-orange-500/20" />
@@ -124,26 +125,26 @@ function InlineMetricsSummary({ metrics, isExpanded, onToggle }: {
                 <MetricCard title="Stability" value={metrics.stability} unit="cal" color="bg-cyan-500/20" />
               </div>
 
-              {/* Engine specs in compact form */}
-              <div className="bg-black/20 rounded-lg p-3">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs text-white/70">Engine: {metrics.motorId}</span>
-                  <span className="text-xs text-white/50">solid</span>
+              {/* Engine specs in compact form with better overflow handling */}
+              <div className="bg-black/20 rounded-lg p-3 min-w-0">
+                <div className="flex items-center justify-between mb-2 min-w-0">
+                  <span className="text-xs text-white/70 truncate">Engine: {metrics.motorId}</span>
+                  <span className="text-xs text-white/50 flex-shrink-0">solid</span>
                 </div>
-                <div className="grid grid-cols-2 gap-3 text-xs">
-                  <div className="flex items-center space-x-2">
-                    <span className="text-white/60">Burn Time:</span>
-                    <span className="text-white font-mono">{formatNumber(metrics.burnTime)}s</span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  <div className="flex items-center space-x-2 min-w-0">
+                    <span className="text-white/60 flex-shrink-0">Burn Time:</span>
+                    <span className="text-white font-mono truncate">{formatNumber(metrics.burnTime)}s</span>
                   </div>
-                  <div className="flex items-center space-x-2">
-                    <span className="text-white/60">Delta-V:</span>
-                    <span className="text-white font-mono">{formatNumber(metrics.deltaV)}m/s</span>
+                  <div className="flex items-center space-x-2 min-w-0">
+                    <span className="text-white/60 flex-shrink-0">Delta-V:</span>
+                    <span className="text-white font-mono truncate">{formatNumber(metrics.deltaV)}m/s</span>
                   </div>
                 </div>
               </div>
 
-              {/* Performance bars */}
-              <div className="space-y-2">
+              {/* Performance bars with proper spacing */}
+              <div className="space-y-3">
                 <PerformanceBar 
                   title="Altitude Performance" 
                   value={metrics.altitude} 
@@ -165,24 +166,37 @@ function InlineMetricsSummary({ metrics, isExpanded, onToggle }: {
   );
 }
 
-// Enhanced chat panel wrapper with metrics integration
-export default function IntegratedChatPanel({ metrics, metricsExpanded, onToggleMetrics }: {
+// Enhanced chat panel wrapper with metrics integration and better overflow handling
+export default function IntegratedChatPanel({ 
+  metrics, 
+  metricsExpanded, 
+  onToggleMetrics,
+  activeAnalysis,
+  onAnalysisClick 
+}: {
   metrics: any;
   metricsExpanded: boolean;
   onToggleMetrics: () => void;
+  activeAnalysis?: string | null;
+  onAnalysisClick?: (analysisId: string) => void;
 }) {
   return (
-    <div className="h-full flex flex-col">
-      {/* Metrics summary that sits above chat */}
-      <InlineMetricsSummary 
-        metrics={metrics}
-        isExpanded={metricsExpanded}
-        onToggle={onToggleMetrics}
-      />
+    <div className="h-full flex flex-col min-w-0 overflow-hidden">
+      {/* Metrics summary that sits above chat with proper spacing */}
+      <div className="flex-shrink-0">
+        <InlineMetricsSummary 
+          metrics={metrics}
+          isExpanded={metricsExpanded}
+          onToggle={onToggleMetrics}
+        />
+      </div>
       
-      {/* Chat panel takes remaining space */}
-      <div className="flex-1 min-h-0">
-        <ChatPanel />
+      {/* Chat panel takes remaining space with proper overflow handling */}
+      <div className="flex-1 min-h-0 overflow-hidden">
+        <ChatPanel 
+          activeAnalysis={activeAnalysis}
+          onAnalysisClick={onAnalysisClick}
+        />
       </div>
     </div>
   );

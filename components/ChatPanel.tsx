@@ -6,6 +6,7 @@ import { dispatchActions } from '@/lib/ai/actions'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { motion } from 'framer-motion'
+import FormattedMessage from '@/components/ui/FormattedMessage'
 
 // Chat message type definition
 export type ChatMessage = {
@@ -50,46 +51,6 @@ export default function ChatPanel({ activeAnalysis, onAnalysisClick }: ChatPanel
      "Make body longer" ,
      "Paint it red" ,
   ];
-  
-  // Format content for better display
-  function formatContent(content: string): string {
-    // Try to detect and format JSON content
-    if (content.includes('{"') && content.includes('"}')) {
-      try {
-        // Extract JSON parts and format them
-        const jsonRegex = /\{[^{}]*"[^"]*"[^{}]*\}/g;
-        let formattedContent = content;
-        
-        const jsonMatches = content.match(jsonRegex);
-        if (jsonMatches) {
-          jsonMatches.forEach(jsonStr => {
-            try {
-              const parsed = JSON.parse(jsonStr);
-              let formatted = '<div class="bg-black/20 rounded-lg p-3 my-2 border-l-4 border-blue-500">';
-              
-              Object.entries(parsed).forEach(([key, value]) => {
-                const displayKey = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-                formatted += `<div class="mb-2"><strong class="text-blue-300">${displayKey}:</strong><br/>`;
-                formatted += `<span class="text-white/90">${value}</span></div>`;
-              });
-              
-              formatted += '</div>';
-              formattedContent = formattedContent.replace(jsonStr, formatted);
-            } catch (e) {
-              // If parsing fails, leave as is
-            }
-          });
-        }
-        
-        return formattedContent;
-      } catch (e) {
-        // If formatting fails, return original
-        return content;
-      }
-    }
-    
-    return content;
-  }
   
   // Send message to AI service
   async function sendMessage(msg: string) {
@@ -288,7 +249,10 @@ export default function ChatPanel({ activeAnalysis, onAnalysisClick }: ChatPanel
       {/* Messages */}
       <div 
         ref={chatContainerRef}
-        className="flex-1 overflow-y-auto p-6 space-y-6 w-full min-w-0"
+        className="flex-1 overflow-y-auto p-4 space-y-6 w-full min-w-0"
+        style={{
+          scrollBehavior: 'smooth',
+        }}
       >
         {messages.map((message, index) => (
           <motion.div
@@ -300,41 +264,49 @@ export default function ChatPanel({ activeAnalysis, onAnalysisClick }: ChatPanel
           >
             <div
               className={cn(
-                "rounded-2xl px-6 py-4 backdrop-blur-xl relative",
+                "rounded-2xl backdrop-blur-xl relative shadow-lg border transition-all duration-200",
                 message.role === "user"
-                  ? "bg-white text-black shadow-lg max-w-[85%]"
-                  : "bg-white/5 text-white border border-white/10 w-full",
+                  ? "bg-white/95 text-black border-white/20 max-w-[85%] px-4 py-2"
+                  : "bg-white/5 text-white border-white/10 w-full px-5 py-4",
               )}
+              style={{
+                // Ensure proper containment
+                overflowWrap: 'break-word',
+                wordBreak: 'break-word',
+                minWidth: 0,
+                maxWidth: '100%',
+              }}
             >
               {message.role === 'assistant' && message.agent && (
-                <div className="absolute -top-2 -right-2 bg-blue-500 text-white text-[10px] rounded-full px-2 py-0.5 opacity-80">
+                <div className="absolute -top-2 -right-2 bg-blue-500 text-white text-[10px] rounded-full px-2 py-0.5 opacity-80 font-medium">
                   {message.agent.replace('_', ' ')}
                 </div>
               )}
-              <div className="w-full">
-                {message.role === 'assistant' ? (
-                  <div 
-                    className="whitespace-pre-wrap break-words w-full text-white leading-relaxed text-sm prose prose-invert prose-sm max-w-none prose-headings:text-white prose-p:text-white prose-strong:text-white prose-ul:text-white prose-li:text-white"
-                    dangerouslySetInnerHTML={{ __html: formatContent(message.content) }}
-                  />
-                ) : (
-                  <p className="whitespace-pre-wrap break-words w-full !text-black leading-relaxed text-sm">{message.content}</p>
-                )}
+              <div className="w-full min-w-0 overflow-hidden">
+                <FormattedMessage 
+                  content={message.content}
+                  role={message.role}
+                />
               </div>
               {/* Show simulation metrics if this is a simulation message */}
               {message.content.includes('simulation') && useRocket.getState().sim && (
-                <div className="mt-4 pt-4 border-t border-white/10">
-                  <div className="grid grid-cols-2 gap-4 text-xs">
-                    <div className="space-y-1">
-                      <span className="text-gray-400">Max Altitude</span>
-                      <div className="font-mono text-white">
-                        {useRocket.getState().sim?.maxAltitude?.toFixed(0) || '0'}m
+                <div className="mt-6 pt-4 border-t border-white/10">
+                  <div className="bg-black/20 rounded-lg p-4 border border-white/5">
+                    <h4 className="text-xs font-medium text-white/70 mb-3 uppercase tracking-wide">
+                      Simulation Results
+                    </h4>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <span className="text-xs text-gray-400">Max Altitude</span>
+                        <div className="font-mono text-white text-base font-semibold">
+                          {useRocket.getState().sim?.maxAltitude?.toFixed(0) || '0'}m
+                        </div>
                       </div>
-                    </div>
-                    <div className="space-y-1">
-                      <span className="text-gray-400">Max Velocity</span>
-                      <div className="font-mono text-white">
-                        {useRocket.getState().sim?.maxVelocity?.toFixed(1) || '0'}m/s
+                      <div className="space-y-1">
+                        <span className="text-xs text-gray-400">Max Velocity</span>
+                        <div className="font-mono text-white text-base font-semibold">
+                          {useRocket.getState().sim?.maxVelocity?.toFixed(1) || '0'}m/s
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -383,7 +355,7 @@ export default function ChatPanel({ activeAnalysis, onAnalysisClick }: ChatPanel
       </div>
 
       {/* Input Area */}
-      <div className="p-6 border-t border-white/5 backdrop-blur-xl bg-black/20 w-full min-w-0">
+      <div className="p-4 border-t border-white/5 backdrop-blur-xl bg-black/20 w-full min-w-0">
         <div className="flex space-x-4 w-full min-w-0">
           <div className="flex-1 relative min-w-0">
             <Input

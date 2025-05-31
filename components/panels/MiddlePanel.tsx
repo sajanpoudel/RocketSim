@@ -1049,7 +1049,7 @@ function ComponentTree({ selectedPart, setSelectedPart, hoveredPart }: {
   ];
 
   return (
-    <div className="absolute bottom-4 right-4 glass-panel rounded p-3 w-48 z-10 shadow-lg">
+    <>
       <h3 className="text-small font-medium mb-2 text-white">Components</h3>
       <ul className="space-y-1">
         {parts.map(part => (
@@ -1069,7 +1069,7 @@ function ComponentTree({ selectedPart, setSelectedPart, hoveredPart }: {
           </li>
         ))}
       </ul>
-    </div>
+    </>
   );
 }
 
