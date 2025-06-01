@@ -423,6 +423,476 @@ export class DatabaseService {
       return null;
     }
   }
+
+  /**
+   * Get user simulations for files panel
+   */
+  async getUserSimulations(): Promise<DbSimulation[]> {
+    try {
+      const user = await getCurrentUser();
+      if (!user) return [];
+
+      const { data, error } = await supabase
+        .from('simulations')
+        .select(`
+          *,
+          rockets!inner(name)
+        `)
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(20);
+
+      if (error) {
+        console.error('Error loading user simulations:', error);
+        return [];
+      }
+
+      return data || [];
+    } catch (error) {
+      console.error('Failed to load user simulations:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Get user chat sessions for files panel
+   */
+  async getUserChatSessions(): Promise<{
+    session_id: string;
+    started_at: string;
+    last_activity: string;
+    rocket_count: number;
+    message_count: number;
+  }[]> {
+    try {
+      const user = await getCurrentUser();
+      if (!user) return [];
+
+      // First, get sessions with message counts, excluding system/welcome messages
+      const { data: rawSessions, error } = await supabase
+        .from('user_sessions')
+        .select(`
+          session_id,
+          started_at,
+          last_activity,
+          rocket_count,
+          chat_messages!inner(
+            id,
+            role,
+            content
+          )
+        `)
+        .eq('user_id', user.id)
+        .order('last_activity', { ascending: false })
+        .limit(20);
+
+      if (error) {
+        console.error('Error loading user chat sessions:', error);
+        return [];
+      }
+
+      // Process sessions to filter out empty/orphaned ones
+      const processedSessions = (rawSessions || [])
+        .map(session => {
+          // Count non-system messages (exclude welcome messages)
+          const meaningfulMessages = session.chat_messages.filter((msg: any) => 
+            msg.role !== 'system' && 
+            !msg.content.toLowerCase().includes('welcome to') &&
+            !msg.content.toLowerCase().includes('rocketsim')
+          );
+
+          return {
+            session_id: session.session_id,
+            started_at: session.started_at,
+            last_activity: session.last_activity,
+            rocket_count: session.rocket_count || 0,
+            message_count: meaningfulMessages.length
+          };
+        })
+        // Filter out sessions with no meaningful messages or rockets
+        .filter(session => 
+          session.message_count > 0 || session.rocket_count > 0
+        );
+
+      return processedSessions;
+    } catch (error) {
+      console.error('Failed to load user chat sessions:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Clean up orphaned chat sessions (sessions with no rockets and only system messages)
+   */
+  async cleanupOrphanedSessions(): Promise<boolean> {
+    try {
+      const user = await getCurrentUser();
+      if (!user) return false;
+
+      // Find sessions with no rockets and only system messages
+      const { data: orphanedSessions } = await supabase
+        .from('user_sessions')
+        .select(`
+          id,
+          session_id,
+          rocket_count,
+          chat_messages(role, content)
+        `)
+        .eq('user_id', user.id)
+        .eq('rocket_count', 0);
+
+      if (orphanedSessions) {
+        const sessionsToDelete = orphanedSessions.filter(session => {
+          const hasOnlySystemMessages = session.chat_messages.every((msg: any) => 
+            msg.role === 'system' || 
+            msg.content.toLowerCase().includes('welcome to') ||
+            msg.content.toLowerCase().includes('rocketsim')
+          );
+          return hasOnlySystemMessages;
+        });
+
+        if (sessionsToDelete.length > 0) {
+          // Delete chat messages first
+          const sessionIds = sessionsToDelete.map(s => s.session_id);
+          await supabase
+            .from('chat_messages')
+            .delete()
+            .in('session_id', sessionIds)
+            .eq('user_id', user.id);
+
+          // Then delete sessions
+          const sessionUuids = sessionsToDelete.map(s => s.id);
+          await supabase
+            .from('user_sessions')
+            .delete()
+            .in('id', sessionUuids)
+            .eq('user_id', user.id);
+
+          console.log(`Cleaned up ${sessionsToDelete.length} orphaned chat sessions`);
+          return true;
+        }
+      }
+
+      return false;
+    } catch (error) {
+      console.error('Failed to cleanup orphaned sessions:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Create a new rocket from template
+   */
+  async createNewRocket(name: string, template: 'basic' | 'advanced' | 'sport' = 'basic'): Promise<Rocket | null> {
+    try {
+      const templates = {
+        basic: {
+          parts: [
+            { id: crypto.randomUUID(), type: 'nose' as const, color: '#A0A7B8', shape: 'ogive' as const, length: 15, baseØ: 5 },
+            { id: crypto.randomUUID(), type: 'body' as const, color: '#8C8D91', Ø: 10, length: 40 },
+            { id: crypto.randomUUID(), type: 'fin' as const, color: '#A0A7B8', root: 10, span: 8, sweep: 6 },
+            { id: crypto.randomUUID(), type: 'engine' as const, color: '#0066FF', thrust: 32, Isp: 200 }
+          ] as Part[],
+          motorId: 'C6-5',
+          Cd: 0.35,
+          units: 'metric' as const
+        },
+        advanced: {
+          parts: [
+            { id: crypto.randomUUID(), type: 'nose' as const, color: '#FF6B35', shape: 'von-karman' as const, length: 20, baseØ: 6 },
+            { id: crypto.randomUUID(), type: 'body' as const, color: '#2E86C1', Ø: 12, length: 60 },
+            { id: crypto.randomUUID(), type: 'fin' as const, color: '#FF6B35', root: 15, span: 12, sweep: 8 },
+            { id: crypto.randomUUID(), type: 'engine' as const, color: '#E74C3C', thrust: 62, Isp: 220 }
+          ] as Part[],
+          motorId: 'D12-5',
+          Cd: 0.32,
+          units: 'metric' as const
+        },
+        sport: {
+          parts: [
+            { id: crypto.randomUUID(), type: 'nose' as const, color: '#F39C12', shape: 'parabolic' as const, length: 25, baseØ: 8 },
+            { id: crypto.randomUUID(), type: 'body' as const, color: '#8E44AD', Ø: 16, length: 80 },
+            { id: crypto.randomUUID(), type: 'fin' as const, color: '#F39C12', root: 20, span: 16, sweep: 10 },
+            { id: crypto.randomUUID(), type: 'engine' as const, color: '#C0392B', thrust: 125, Isp: 240 }
+          ] as Part[],
+          motorId: 'E9-6',
+          Cd: 0.30,
+          units: 'metric' as const
+        }
+      };
+
+      const newRocket: Rocket = {
+        id: crypto.randomUUID(),
+        name,
+        ...templates[template]
+      };
+
+      return newRocket;
+    } catch (error) {
+      console.error('Failed to create new rocket:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Delete a rocket
+   */
+  async deleteRocket(rocketId: string): Promise<boolean> {
+    try {
+      const user = await getCurrentUser();
+      if (!user) return false;
+
+      const { error } = await supabase
+        .from('rockets')
+        .delete()
+        .eq('id', rocketId)
+        .eq('user_id', user.id);
+
+      if (error) {
+        console.error('Error deleting rocket:', error);
+        return false;
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Failed to delete rocket:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Get rocket associated with a chat session
+   */
+  async getRocketForSession(sessionId: string): Promise<string | null> {
+    try {
+      const user = await getCurrentUser();
+      if (!user) return null;
+
+      // Get the most recent rocket_id from chat messages in this session
+      const { data, error } = await supabase
+        .from('chat_messages')
+        .select('rocket_id')
+        .eq('session_id', sessionId)
+        .eq('user_id', user.id)
+        .not('rocket_id', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (error || !data) {
+        console.log('No rocket found for session:', sessionId);
+        return null;
+      }
+
+      return data.rocket_id;
+    } catch (error) {
+      console.error('Error getting rocket for session:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Load a specific rocket by ID
+   */
+  async loadRocketById(rocketId: string): Promise<Rocket | null> {
+    try {
+      const user = await getCurrentUser();
+      if (!user) return null;
+
+      const { data, error } = await supabase
+        .from('rockets')
+        .select('*')
+        .eq('id', rocketId)
+        .eq('user_id', user.id)
+        .single();
+
+      if (error || !data) {
+        console.error('Error loading rocket by ID:', error);
+        return null;
+      }
+
+      return this.convertRocketFromDb(data);
+    } catch (error) {
+      console.error('Failed to load rocket by ID:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Save a new version of an existing rocket
+   */
+  async saveRocketVersion(
+    rocketId: string, 
+    rocket: Rocket, 
+    description?: string, 
+    createdByAction?: string
+  ): Promise<any | null> {
+    try {
+      const user = await getCurrentUser();
+      if (!user) return null;
+
+      // Validate rocket ID and ensure it exists in database
+      if (!rocketId || rocketId.length < 10 || rocketId.includes('local-')) {
+        console.log('Cannot create version for unsaved rocket:', rocketId);
+        return null;
+      }
+
+      // Check if rocket exists in database
+      const { data: existingRocket } = await supabase
+        .from('rockets')
+        .select('id')
+        .eq('id', rocketId)
+        .eq('user_id', user.id)
+        .single();
+
+      if (!existingRocket) {
+        console.log('Rocket not found in database, cannot create version:', rocketId);
+        return null;
+      }
+
+      // Get the current highest version number
+      const { data: versions } = await supabase
+        .from('rocket_versions')
+        .select('version_number')
+        .eq('rocket_id', rocketId)
+        .order('version_number', { ascending: false })
+        .limit(1);
+
+      const nextVersion = (versions && versions[0]?.version_number || 0) + 1;
+
+      // Mark all previous versions as not current
+      await supabase
+        .from('rocket_versions')
+        .update({ is_current: false })
+        .eq('rocket_id', rocketId);
+
+      // Save new version
+      const versionData = {
+        rocket_id: rocketId,
+        version_number: nextVersion,
+        name: `${rocket.name} v${nextVersion}`,
+        description: description || `Version ${nextVersion}`,
+        parts: toJson(rocket.parts),
+        motor_id: rocket.motorId,
+        drag_coefficient: rocket.Cd,
+        units: rocket.units,
+        created_by_action: createdByAction,
+        is_current: true,
+        user_id: user.id
+      };
+
+      const { data, error } = await supabase
+        .from('rocket_versions')
+        .insert(versionData)
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Error saving rocket version:', error);
+        return null;
+      }
+
+      // Update the main rocket record with latest version
+      await supabase
+        .from('rockets')
+        .update({
+          name: rocket.name,
+          parts: toJson(rocket.parts),
+          motor_id: rocket.motorId,
+          drag_coefficient: rocket.Cd,
+          units: rocket.units,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', rocketId);
+
+      console.log(`Created version ${nextVersion} for rocket ${rocketId}`);
+      return data;
+    } catch (error) {
+      console.error('Failed to save rocket version:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Get version history for a rocket
+   */
+  async getRocketVersions(rocketId: string): Promise<any[]> {
+    try {
+      const user = await getCurrentUser();
+      if (!user) return [];
+
+      // Validate rocket ID format (should be a UUID)
+      if (!rocketId || rocketId.length < 10 || rocketId.includes('local-')) {
+        console.log('Invalid or local rocket ID, no versions available:', rocketId);
+        return [];
+      }
+
+      const { data, error } = await supabase
+        .from('rocket_versions')
+        .select('*')
+        .eq('rocket_id', rocketId)
+        .eq('user_id', user.id)
+        .order('version_number', { ascending: false });
+
+      if (error) {
+        console.error('Error loading rocket versions:', error);
+        return [];
+      }
+
+      console.log(`Loaded ${data?.length || 0} versions for rocket ${rocketId}`);
+      return data || [];
+    } catch (error) {
+      console.error('Failed to load rocket versions:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Revert to a specific rocket version
+   */
+  async revertToRocketVersion(rocketId: string, versionId: string): Promise<Rocket | null> {
+    try {
+      const user = await getCurrentUser();
+      if (!user) return null;
+
+      // Get the version data
+      const { data: version, error } = await supabase
+        .from('rocket_versions')
+        .select('*')
+        .eq('id', versionId)
+        .eq('rocket_id', rocketId)
+        .eq('user_id', user.id)
+        .single();
+
+      if (error || !version) {
+        console.error('Error loading version:', error);
+        return null;
+      }
+
+      // Create a new version based on the reverted version
+      const revertedRocket: Rocket = {
+        id: rocketId,
+        name: version.name.replace(/ v\d+$/, ''), // Remove version suffix
+        parts: version.parts as unknown as Part[],
+        motorId: version.motor_id,
+        Cd: version.drag_coefficient,
+        units: version.units as 'metric' | 'imperial'
+      };
+
+      // Save as new version with "reverted" description
+      await this.saveRocketVersion(
+        rocketId,
+        revertedRocket,
+        `Reverted to version ${version.version_number}`,
+        'user_revert'
+      );
+
+      return revertedRocket;
+    } catch (error) {
+      console.error('Failed to revert rocket version:', error);
+      return null;
+    }
+  }
 }
 
 // Export singleton instance
@@ -436,4 +906,20 @@ export const saveSimulationToDb = (rocketId: string, result: SimulationResult, f
 export const saveChatToDb = (sessionId: string, role: 'user' | 'assistant' | 'system', content: string, rocketId?: string, actions?: any) =>
   databaseService.saveChatMessage(sessionId, role, content, rocketId, actions);
 export const getCurrentSessionId = () => databaseService.getCurrentSession();
-export const testDatabaseConnection = () => databaseService.testConnection(); 
+export const testDatabaseConnection = () => databaseService.testConnection();
+
+// Export new helper functions for left panel
+export const getUserSimulations = () => databaseService.getUserSimulations();
+export const getUserChatSessions = () => databaseService.getUserChatSessions();
+export const createNewRocket = (name: string, template: 'basic' | 'advanced' | 'sport' = 'basic') => 
+  databaseService.createNewRocket(name, template);
+export const deleteRocket = (rocketId: string) => databaseService.deleteRocket(rocketId);
+export const getUserStats = () => databaseService.getUserStats();
+export const getRocketForSession = (sessionId: string) => databaseService.getRocketForSession(sessionId);
+export const loadRocketById = (rocketId: string) => databaseService.loadRocketById(rocketId);
+export const saveRocketVersion = (rocketId: string, rocket: Rocket, description?: string, createdByAction?: string) => 
+  databaseService.saveRocketVersion(rocketId, rocket, description, createdByAction);
+export const getRocketVersions = (rocketId: string) => databaseService.getRocketVersions(rocketId);
+export const revertToRocketVersion = (rocketId: string, versionId: string) => 
+  databaseService.revertToRocketVersion(rocketId, versionId);
+export const cleanupOrphanedSessions = () => databaseService.cleanupOrphanedSessions(); 

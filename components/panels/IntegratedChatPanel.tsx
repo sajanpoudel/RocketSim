@@ -173,13 +173,15 @@ export default function IntegratedChatPanel({
   metricsExpanded, 
   onToggleMetrics,
   activeAnalysis,
-  onAnalysisClick 
+  onAnalysisClick,
+  loadSessionId 
 }: {
   metrics: any;
   metricsExpanded: boolean;
   onToggleMetrics: () => void;
   activeAnalysis?: string | null;
   onAnalysisClick?: (analysisId: string) => void;
+  loadSessionId?: string | null;
 }) {
   const { user, userSession } = useAuth();
 
@@ -199,6 +201,7 @@ export default function IntegratedChatPanel({
         <ChatPanel 
           activeAnalysis={activeAnalysis}
           onAnalysisClick={onAnalysisClick}
+          loadSessionId={loadSessionId}
         />
       </div>
     </div>

@@ -17,7 +17,7 @@ export default function RocketSim() {
   
   // Panel sizing state (default widths in percentages)
   const [leftPanelWidth, setLeftPanelWidth] = useState(20)
-  const [rightPanelWidth, setRightPanelWidth] = useState(30)
+  const [rightPanelWidth, setRightPanelWidth] = useState(25)
   
   // Panel collapse state
   const [isLeftPanelCollapsed, setIsLeftPanelCollapsed] = useState(false)
@@ -149,8 +149,19 @@ export default function RocketSim() {
   }
 
   // Add tooltips for first-time users
-  const [showTooltips, setShowTooltips] = useState(true);
+  const [showTooltips, setShowTooltips] = useState(false);
   
+  const [loadChatSessionId, setLoadChatSessionId] = useState<string | null>(null); // Add state for loading specific chat sessions
+
+  // Handle chat session loading
+  const handleChatSessionClick = (sessionId: string) => {
+    setLoadChatSessionId(sessionId);
+  };
+
+  const handleChatSessionLoad = (sessionId: string | null) => {
+    setLoadChatSessionId(sessionId);
+  };
+
   useEffect(() => {
     // Hide tooltips after 5 seconds
     const timer = setTimeout(() => {
@@ -167,27 +178,28 @@ export default function RocketSim() {
         onKeyDown={handleKeyDown}
         tabIndex={0}
       >
-        {/* Left Panel - File & Settings */}
-        <motion.div
-          className="h-full relative"
-          initial={{ width: `${leftPanelWidth}%` }}
-          animate={{ 
-            width: isLeftPanelCollapsed ? '60px' : `${leftPanelWidth}%`
-          }}
-          transition={{ duration: 0.3, ease: "easeInOut" }}
-        >
-          <LeftPanel 
-            onCollapse={toggleLeftPanel} 
-            isCollapsed={isLeftPanelCollapsed}
-          />
-          
-          {/* Tooltip for left panel collapse */}
-          {showTooltips && !isLeftPanelCollapsed && (
-            <div className="absolute top-16 right-6 bg-black bg-opacity-80 text-white text-xs p-2 rounded shadow-lg pointer-events-none">
-              Cmd+1 to toggle
-            </div>
-          )}
-        </motion.div>
+        {/* Left Panel */}
+        {!isLeftPanelCollapsed && (
+          <motion.div
+            className="h-full relative"
+            initial={{ width: `${leftPanelWidth}%` }}
+            animate={{ width: `${leftPanelWidth}%` }}
+            transition={{ duration: 0.3, ease: "easeInOut" }}
+          >
+            <LeftPanel 
+              isCollapsed={isLeftPanelCollapsed} 
+              onCollapse={() => setIsLeftPanelCollapsed(true)}
+              onChatSessionClick={handleChatSessionClick}
+            />
+            
+            {/* Tooltip for left panel */}
+            {showTooltips && (
+              <div className="absolute top-16 right-4 bg-black bg-opacity-80 text-white text-xs p-2 rounded shadow-lg pointer-events-none">
+                Cmd+1 to toggle
+              </div>
+            )}
+          </motion.div>
+        )}
         
         {/* Left Panel Divider - only show when not collapsed */}
         {!isLeftPanelCollapsed && (
@@ -245,6 +257,8 @@ export default function RocketSim() {
           <RightPanel 
             onCollapse={toggleRightPanel}
             isCollapsed={isRightPanelCollapsed}
+            loadSessionId={loadChatSessionId}
+            onChatSessionLoad={handleChatSessionLoad}
           />
           
           {/* Tooltip for right panel collapse */}

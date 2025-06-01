@@ -15,6 +15,7 @@ import MotorTab from './pro-mode/MotorTab'
 import TrajectoryTab from './pro-mode/TrajectoryTab'
 import RecoveryTab from './pro-mode/RecoveryTab'
 import WeatherStatus from '@/components/WeatherStatus'
+import VersionHistoryTab from './pro-mode/VersionHistoryTab'
 
 // Enhanced motor database with more detailed properties
 const MOTORS = {
@@ -103,6 +104,8 @@ function formatNumber(value: number): string {
 type RightPanelProps = {
   onCollapse: () => void;
   isCollapsed: boolean;
+  loadSessionId?: string | null;
+  onChatSessionLoad?: (sessionId: string | null) => void;
 }
 
 const analysisTypes = [
@@ -113,9 +116,10 @@ const analysisTypes = [
   { id: "monte-carlo", label: "Monte Carlo", icon: "🎲", description: "Statistical analysis" },
   { id: "motor", label: "Motor", icon: "🔥", description: "Engine performance" },
   { id: "environment", label: "Environment", icon: "🌍", description: "Weather conditions" },
+  { id: "versions", label: "Versions", icon: "🕐", description: "Design history" },
 ];
 
-export default function RightPanel({ onCollapse, isCollapsed }: RightPanelProps) {
+export default function RightPanel({ onCollapse, isCollapsed, loadSessionId, onChatSessionLoad }: RightPanelProps) {
   const [metricsExpanded, setMetricsExpanded] = useState(false);
   const [activeAnalysis, setActiveAnalysis] = useState<string | null>(null);
   
@@ -252,6 +256,8 @@ export default function RightPanel({ onCollapse, isCollapsed }: RightPanelProps)
         return <MotorTab />
       case "environment":
         return <EnvironmentTab />
+      case "versions":
+        return <VersionHistoryTab />
       default:
         return null
     }
@@ -338,6 +344,7 @@ export default function RightPanel({ onCollapse, isCollapsed }: RightPanelProps)
               onToggleMetrics={() => setMetricsExpanded(!metricsExpanded)}
               activeAnalysis={activeAnalysis}
               onAnalysisClick={handleAnalysisClick}
+              loadSessionId={loadSessionId}
             />
           </div>
 

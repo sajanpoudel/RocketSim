@@ -299,12 +299,14 @@ function RocketModel({
       }
     }
     
-    window.addEventListener('rocketMouseMove' as any, handleMouseMove)
-    
-    return () => {
-      window.removeEventListener('rocketMouseMove' as any, handleMouseMove)
+    if (typeof window !== 'undefined') {
+      window.addEventListener('rocketMouseMove' as any, handleMouseMove)
+      
+      return () => {
+        window.removeEventListener('rocketMouseMove' as any, handleMouseMove)
+      }
     }
-  }, [])
+  }, []) // Removed dependency array to prevent re-renders
 
   // Use a separate effect for raycasting to avoid running it in every frame
   useEffect(() => {
@@ -756,31 +758,29 @@ let globalRocketY = -2.8; // Updated global reference
 
 // Add mouse event handler at the top level
 function MousePositionHandler() {
-  const [mousePos, setMousePos] = useState<[number, number]>([-1000, -1000])
-  
   useEffect(() => {
     const handleMouseMove = (event: MouseEvent) => {
+      if (!event || typeof window === 'undefined') return;
+      
       // Calculate normalized device coordinates
       const x = (event.clientX / window.innerWidth) * 2 - 1
       const y = -(event.clientY / window.innerHeight) * 2 + 1
       
-      setMousePos([x, y])
-      
       // Set mouse position for raycasting in RocketModel
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('rocketMouseMove', { 
-          detail: { x, y } 
-        }))
+      window.dispatchEvent(new CustomEvent('rocketMouseMove', { 
+        detail: { x, y } 
+      }))
+    }
+    
+    // Add event listener with proper cleanup
+    if (typeof window !== 'undefined') {
+      window.addEventListener('mousemove', handleMouseMove)
+      
+      return () => {
+        window.removeEventListener('mousemove', handleMouseMove)
       }
     }
-    
-    // Add event listener
-    window.addEventListener('mousemove', handleMouseMove)
-    
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove)
-    }
-  }, [])
+  }, []) // Empty dependency array - only setup once
   
   return null
 }
@@ -893,18 +893,20 @@ function ViewportControls({
   useEffect(() => {
     // Function to handle rotation updates
     const handleRocketRotation = (e: CustomEvent) => {
-      if (e.detail && typeof e.detail.rotation === 'number') {
+      if (e && e.detail && typeof e.detail.rotation === 'number') {
         setCompassRotation(e.detail.rotation);
       }
     };
     
-    // Listen for custom rocket rotation events
-    window.addEventListener('rocketRotation' as any, handleRocketRotation);
-    
-    return () => {
-      window.removeEventListener('rocketRotation' as any, handleRocketRotation);
-    };
-  }, []);
+    // Listen for custom rocket rotation events with proper checks
+    if (typeof window !== 'undefined') {
+      window.addEventListener('rocketRotation' as any, handleRocketRotation);
+      
+      return () => {
+        window.removeEventListener('rocketRotation' as any, handleRocketRotation);
+      };
+    }
+  }, []); // Empty dependency array to prevent re-renders
 
   return (
     <div className="absolute top-8 right-10 z-50 flex flex-col items-center pointer-events-auto">
@@ -1362,13 +1364,17 @@ function PartLabel({ partName, visible, customStyle = { left: '20px', bottom: '5
   
   // Initialize window size on mount and update on resize with debouncing
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
     let resizeTimeout: NodeJS.Timeout;
     
     const updateWindowSize = () => {
-      setWindowSize({
-        width: window.innerWidth,
-        height: window.innerHeight
-      })
+      if (typeof window !== 'undefined') {
+        setWindowSize({
+          width: window.innerWidth,
+          height: window.innerHeight
+        })
+      }
     }
     
     const debouncedResize = () => {
@@ -1603,10 +1609,17 @@ export default function MiddlePanel({ isMobile = false, isSmallDesktop = false, 
   
   // Listen for component highlight events
   useEffect(() => {
-    const handleHighlight = (e: CustomEvent) => setSelectedPart(e.detail)
-    window.addEventListener('highlightComponent' as any, handleHighlight)
-    return () => window.removeEventListener('highlightComponent' as any, handleHighlight)
-  }, [])
+    const handleHighlight = (e: CustomEvent) => {
+      if (e && e.detail !== undefined) {
+        setSelectedPart(e.detail)
+      }
+    }
+    
+    if (typeof window !== 'undefined') {
+      window.addEventListener('highlightComponent' as any, handleHighlight)
+      return () => window.removeEventListener('highlightComponent' as any, handleHighlight)
+    }
+  }, []) // Empty dependency array to prevent re-renders
 
   // Listen for nose cone click events to reset camera view
   useEffect(() => {
@@ -1620,12 +1633,14 @@ export default function MiddlePanel({ isMobile = false, isSmallDesktop = false, 
       }
     }
     
-    window.addEventListener('resetCameraView', handleResetCameraView as EventListener)
-    
-    return () => {
-      window.removeEventListener('resetCameraView', handleResetCameraView as EventListener)
+    if (typeof window !== 'undefined') {
+      window.addEventListener('resetCameraView', handleResetCameraView as EventListener)
+      
+      return () => {
+        window.removeEventListener('resetCameraView', handleResetCameraView as EventListener)
+      }
     }
-  }, [])
+  }, []) // Empty dependency array to prevent re-renders
   
   // Adjust UI positioning based on fullscreen mode
   const viewportControlsClass = isFullScreen 

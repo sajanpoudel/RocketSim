@@ -332,13 +332,17 @@ export function calculateStability(rocket: any) {
 
 // Main dispatcher function to process agent actions
 export function dispatchActions(actions: any[]) {
-  const { updateRocket, setSim } = useRocket.getState();
+  const { updateRocket, setSim, saveRocketVersionWithDescription } = useRocket.getState();
   
   console.log('🎯 Dispatching actions:', actions);
   
   // Get initial state for comparison
   const initialState = useRocket.getState().rocket;
   console.log('🚀 Rocket state BEFORE dispatching actions:', JSON.stringify(initialState.parts, null, 2));
+  
+  // Track if any changes were made to the rocket design
+  let rocketModified = false;
+  let modificationDescription = '';
   
   actions.forEach((a) => {
     console.log('🔄 Processing action:', a);
@@ -351,6 +355,8 @@ export function dispatchActions(actions: any[]) {
     switch (a.action) {
       case "add_part":
         console.log('➕ Adding part:', a.type, a.props);
+        rocketModified = true;
+        modificationDescription = `Added ${a.type} ${a.props?.color ? `(${a.props.color})` : ''}`;
         updateRocket((r) => {
           r.parts.push({ 
             id: crypto.randomUUID(), 
@@ -359,17 +365,21 @@ export function dispatchActions(actions: any[]) {
             ...a.props 
           });
           return r;
-        });
+        }, true);
         break;
       case "update_rocket":
         console.log('🚀 Updating rocket properties:', a.props);
+        rocketModified = true;
+        modificationDescription = `Updated rocket: ${Object.keys(a.props).join(', ')}`;
         updateRocket((r) => {
           Object.assign(r, a.props);
           return r;
-        });
+        }, true);
         break;
       case "update_part":
         console.log('🔧 Updating part:', a.id, a.props);
+        rocketModified = true;
+        modificationDescription = `Modified ${a.id} part: ${Object.keys(a.props).join(', ')}`;
         updateRocket((r) => {
           if (a.id === "all") {
             // Update all parts
@@ -472,10 +482,12 @@ export function dispatchActions(actions: any[]) {
             }
           }
           return r;
-        });
+        }, true);
         break;
       case "remove_part":
         console.log('🗑️ Removing part:', a.id);
+        rocketModified = true;
+        modificationDescription = `Removed ${a.id} part`;
         updateRocket((r) => {
           // First try to find by exact ID
           let partIndex = r.parts.findIndex((p) => p.id === a.id);
@@ -504,15 +516,17 @@ export function dispatchActions(actions: any[]) {
             console.warn(`❌ Part not found for removal: ${a.id}`);
           }
           return r;
-        });
+        }, true);
         break;
       case "change_motor":
       case "update_motor":
         console.log('🚀 Changing motor to:', a.motorId || a.id);
+        rocketModified = true;
+        modificationDescription = `Changed motor to ${a.motorId || a.id}`;
         updateRocket((r) => {
           r.motorId = a.motorId || a.id;
           return r;
-        });
+        }, true);
         break;
       case "get_motor":
         console.log('ℹ️ Getting motor info for:', a.id);
@@ -618,6 +632,10 @@ export function dispatchActions(actions: any[]) {
   // Get final state for comparison
   const finalState = useRocket.getState().rocket;
   console.log('🚀 Rocket state AFTER dispatching actions:', JSON.stringify(finalState.parts, null, 2));
+  
+  if (rocketModified) {
+    saveRocketVersionWithDescription(modificationDescription);
+  }
 }
 
 // ================================

@@ -19,9 +19,10 @@ export type ChatMessage = {
 interface ChatPanelProps {
   activeAnalysis?: string | null;
   onAnalysisClick?: (analysisId: string) => void;
+  loadSessionId?: string | null;  // Add this prop to trigger loading a specific session
 }
 
-export default function ChatPanel({ activeAnalysis, onAnalysisClick }: ChatPanelProps) {
+export default function ChatPanel({ activeAnalysis, onAnalysisClick, loadSessionId }: ChatPanelProps) {
   const { user, userSession } = useAuth();
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
@@ -45,6 +46,15 @@ export default function ChatPanel({ activeAnalysis, onAnalysisClick }: ChatPanel
       loadChatHistory();
     }
   }, [user, userSession]);
+  
+  // Load specific session when loadSessionId changes
+  useEffect(() => {
+    if (loadSessionId && loadSessionId !== userSession?.session_id) {
+      loadSpecificSessionHistory(loadSessionId);
+      // Also load the rocket associated with this session
+      useRocket.getState().loadChatSession(loadSessionId);
+    }
+  }, [loadSessionId]);
   
   // Auto-scroll chat to bottom on new messages
   useEffect(() => {
@@ -79,14 +89,60 @@ export default function ChatPanel({ activeAnalysis, onAnalysisClick }: ChatPanel
     }
   };
   
+  // Load chat history from a specific session
+  const loadSpecificSessionHistory = async (sessionId: string) => {
+    if (!user) return;
+    
+    try {
+      const history = await chatService.getChatHistory(sessionId, 50);
+      if (history.length > 0) {
+        const formattedHistory = history.map((msg: any) => ({
+          role: msg.role as 'user' | 'assistant',
+          content: msg.content,
+          agent: msg.context_data?.agent || 'master'
+        }));
+        setMessages([
+          {
+            role: 'assistant',
+            content: `Switched to previous session. You can continue designing from where you left off!`,
+            agent: 'system'
+          },
+          ...formattedHistory
+        ]);
+      } else {
+        setMessages([
+          {
+            role: 'assistant',
+            content: 'No messages found in this chat session. Start a new conversation!',
+            agent: 'system'
+          }
+        ]);
+      }
+    } catch (error) {
+      console.error('Error loading session history:', error);
+      setMessages([
+        {
+          role: 'assistant',
+          content: 'Error loading chat session. Please try again.',
+          agent: 'error'
+        }
+      ]);
+    }
+  };
+  
   // Save message to database
   const saveMessage = async (message: ChatMessage, context?: any) => {
-    if (!user || !userSession) return;
+    if (!user) return;
+    
+    // Use the loaded session if viewing a different session, otherwise use current session
+    const targetSessionId = loadSessionId || userSession?.session_id;
+    if (!targetSessionId) return;
     
     try {
       await chatService.saveChatMessage({
         userId: user.id,
-        sessionId: userSession.session_id,
+        sessionId: targetSessionId,
+        rocketId: context?.rocketId, // Include rocket ID from context
         role: message.role,
         content: message.content,
         contextData: {
@@ -114,13 +170,15 @@ export default function ChatPanel({ activeAnalysis, onAnalysisClick }: ChatPanel
   async function sendMessage(msg: string) {
     if (!msg.trim()) return;
     
+    // Remove read-only restriction - allow sending messages to any loaded session
+    
     // Add user message to chat
     const userMessage: ChatMessage = { role: 'user', content: msg };
     const history = [...messages, userMessage];
     setMessages(history);
     setInputValue('');
     setIsLoading(true);
-    setCurrentlyRunningAgent(lastUsedAgent); // Show that the last used agent is initially running
+    setCurrentlyRunningAgent(lastUsedAgent);
     
     try {
       // Get rocket data from store
@@ -281,8 +339,8 @@ export default function ChatPanel({ activeAnalysis, onAnalysisClick }: ChatPanel
       setMessages([...history, assistantMessage]);
       
       // Save both user and assistant messages to database
-      await saveMessage(userMessage, { rocket, environment });
-      await saveMessage(assistantMessage, { actions: json.actions, agentUsed: json.agent_used });
+      await saveMessage(userMessage, { rocket, environment, rocketId: rocket.id });
+      await saveMessage(assistantMessage, { actions: json.actions, agentUsed: json.agent_used, rocketId: rocket.id });
       
       // Store which agent was used for next request
       if (json.agent_used) {
@@ -306,6 +364,7 @@ export default function ChatPanel({ activeAnalysis, onAnalysisClick }: ChatPanel
   const handleSend = () => {
     sendMessage(inputValue);
   };
+  
   return (
     <div className="h-full flex flex-col w-full min-w-0">
       {/* Messages */}

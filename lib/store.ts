@@ -15,7 +15,16 @@ import {
   saveRocketToDb, 
   saveSimulationToDb, 
   saveChatToDb,
-  getCurrentSessionId
+  getCurrentSessionId,
+  createNewRocket,
+  deleteRocket,
+  getUserSimulations,
+  getUserChatSessions,
+  getUserStats,
+  saveRocketVersion,
+  getRocketVersions,
+  revertToRocketVersion,
+  cleanupOrphanedSessions
 } from '@/lib/services/database.service';
 
 // Default rocket configuration
@@ -105,8 +114,18 @@ export interface RocketState {
   isSaving: boolean;
   initializationAttempted: boolean;
   
+  // Left panel state
+  userSimulations: any[];
+  userChatSessions: any[];
+  userStats: { rocketsCount: number; simulationsCount: number; messagesCount: number } | null;
+  isLoadingPanelData: boolean;
+  
+  // Version control state
+  rocketVersions: any[];
+  isLoadingVersions: boolean;
+  
   // Actions
-  updateRocket: (fn: (rocket: Rocket) => Rocket) => void;
+  updateRocket: (fn: (rocket: Rocket) => Rocket, skipAutoSave?: boolean) => void;
   setSim: (sim: SimulationResult | null) => void;
   setEnvironment: (env: EnvironmentConfig) => void;
   setLaunchParameters: (params: LaunchParameters) => void;
@@ -124,6 +143,20 @@ export interface RocketState {
   loadUserRockets: () => Promise<void>;
   initializeDatabase: () => Promise<void>;
   saveChatMessage: (role: 'user' | 'assistant' | 'system', content: string, actions?: any) => Promise<void>;
+  
+  // Left panel actions
+  loadRocket: (rocket: Rocket) => void;
+  createAndLoadNewRocket: (name: string, template?: 'basic' | 'advanced' | 'sport') => Promise<void>;
+  deleteRocketFromList: (rocketId: string) => Promise<void>;
+  loadPanelData: () => Promise<void>;
+  refreshPanelData: () => void;
+  
+  // New actions
+  loadChatSession: (sessionId: string) => Promise<void>;
+  saveRocketVersionWithDescription: (description?: string, createdByAction?: string) => Promise<void>;
+  loadRocketVersions: () => Promise<void>;
+  revertToVersion: (versionId: string) => Promise<void>;
+  clearRocketVersions: () => void;
 }
 
 // Create the enhanced store
@@ -155,14 +188,33 @@ export const useRocket = create<RocketState>()((set, get) => ({
   isSaving: false,
   initializationAttempted: false,
   
+  // Left panel state
+  userSimulations: [],
+  userChatSessions: [],
+  userStats: null,
+  isLoadingPanelData: true,
+  
+  // Version control state
+  rocketVersions: [],
+  isLoadingVersions: false,
+  
   // Core actions
-  updateRocket: (fn) => {
+  updateRocket: (fn, skipAutoSave) => {
     const newRocket = fn(structuredClone(get().rocket));
     set({ rocket: newRocket });
     
     // Auto-save to database if connected (non-blocking)
-    if (get().isDatabaseConnected) {
-      get().saveCurrentRocket();
+    if (get().isDatabaseConnected && !skipAutoSave) {
+      // Check if this is an existing rocket (has a saved version) 
+      // If so, save as new version instead of creating new rocket
+      const currentRocket = get().rocket;
+      if (get().savedRockets.some(r => r.id === currentRocket.id)) {
+        // This is an existing rocket - save new version
+        get().saveRocketVersionWithDescription('Auto-saved changes', 'user_edit');
+      } else {
+        // This is a new rocket - save normally
+        get().saveCurrentRocket();
+      }
     }
   },
   
@@ -316,6 +368,164 @@ export const useRocket = create<RocketState>()((set, get) => ({
     } catch (error) {
       console.warn('Failed to save chat message:', error);
     }
+  },
+  
+  // Left panel actions
+  loadRocket: (rocket) => {
+    set({ rocket });
+    // Clear version history when switching rockets
+    get().clearRocketVersions();
+    // Load version history for the new rocket (if it has an ID from database)
+    if (get().isDatabaseConnected && rocket.id && !rocket.id.includes('local-')) {
+      get().loadRocketVersions();
+    }
+  },
+  
+  createAndLoadNewRocket: async (name, template = 'basic') => {
+    const newRocket = await createNewRocket(name, template);
+    if (newRocket) {
+      set({ rocket: newRocket });
+      // Clear version history for new rockets
+      get().clearRocketVersions();
+      
+      // Auto-save to database if connected (non-blocking)
+      if (get().isDatabaseConnected) {
+        get().saveCurrentRocket();
+      }
+    }
+  },
+  
+  deleteRocketFromList: async (rocketId) => {
+    await deleteRocket(rocketId);
+    get().loadUserRockets();
+  },
+  
+  loadPanelData: async () => {
+    try {
+      // Clean up orphaned sessions before loading (non-blocking)
+      if (get().isDatabaseConnected) {
+        cleanupOrphanedSessions().catch(error => 
+          console.warn('Session cleanup failed:', error)
+        );
+      }
+      
+      const userSimulations = await getUserSimulations();
+      const userChatSessions = await getUserChatSessions();
+      const userStats = await getUserStats();
+      
+      set({ 
+        userSimulations,
+        userChatSessions,
+        userStats,
+        isLoadingPanelData: false
+      });
+    } catch (error) {
+      console.warn('Failed to load panel data:', error);
+      set({ isLoadingPanelData: false });
+    }
+  },
+  
+  refreshPanelData: () => {
+    set({ isLoadingPanelData: true });
+    get().loadPanelData();
+  },
+  
+  // New actions
+  loadChatSession: async (sessionId: string) => {
+    if (!get().isDatabaseConnected) return;
+    
+    try {
+      console.log('Loading chat session:', sessionId);
+      
+      // Get the rocket associated with this session
+      const rocketId = await databaseService.getRocketForSession(sessionId);
+      
+      if (rocketId) {
+        // Load the rocket design
+        const rocket = await databaseService.loadRocketById(rocketId);
+        if (rocket) {
+          set({ rocket });
+          console.log('Loaded rocket for session:', rocket.name);
+        }
+      } else {
+        console.log('No specific rocket found for session, keeping current rocket');
+      }
+    } catch (error) {
+      console.error('Error loading chat session:', error);
+    }
+  },
+  
+  saveRocketVersionWithDescription: async (description?: string, createdByAction?: string) => {
+    const state = get();
+    if (!state.isDatabaseConnected) return;
+    
+    // Check if current rocket is saved in database
+    const isRocketSaved = state.savedRockets.some(r => r.id === state.rocket.id);
+    if (!isRocketSaved) {
+      console.log('Cannot create version for unsaved rocket, saving rocket first...');
+      // Save the rocket first, then create a version
+      await get().saveCurrentRocket();
+      return;
+    }
+    
+    try {
+      const version = await saveRocketVersion(
+        state.rocket.id, 
+        state.rocket, 
+        description, 
+        createdByAction
+      );
+      if (version) {
+        console.log('Rocket version saved:', version.version_number);
+        // Refresh version history
+        get().loadRocketVersions();
+      }
+    } catch (error) {
+      console.error('Failed to save rocket version:', error);
+    }
+  },
+  
+  loadRocketVersions: async () => {
+    const state = get();
+    if (!state.isDatabaseConnected) return;
+    
+    // Check if current rocket is saved in database
+    const isRocketInDatabase = state.savedRockets.some(r => r.id === state.rocket.id);
+    if (!isRocketInDatabase) {
+      // This is a new/unsaved rocket, clear version history
+      set({ rocketVersions: [], isLoadingVersions: false });
+      return;
+    }
+    
+    set({ isLoadingVersions: true });
+    try {
+      const versions = await getRocketVersions(state.rocket.id);
+      set({ rocketVersions: versions, isLoadingVersions: false });
+    } catch (error) {
+      console.error('Failed to load rocket versions:', error);
+      set({ rocketVersions: [], isLoadingVersions: false });
+    }
+  },
+  
+  revertToVersion: async (versionId: string) => {
+    const state = get();
+    if (!state.isDatabaseConnected) return;
+    
+    try {
+      const revertedRocket = await revertToRocketVersion(state.rocket.id, versionId);
+      if (revertedRocket) {
+        set({ rocket: revertedRocket });
+        console.log('Reverted to version:', versionId);
+        // Refresh version history
+        get().loadRocketVersions();
+      }
+    } catch (error) {
+      console.error('Failed to revert to version:', error);
+    }
+  },
+  
+  clearRocketVersions: () => {
+    set({ rocketVersions: [] });
   }
 }));
 

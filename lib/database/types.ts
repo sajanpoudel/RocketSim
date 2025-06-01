@@ -7,6 +7,24 @@
 type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[]
 
 /**
+ * Rocket version for tracking design iterations
+ */
+export interface RocketVersion {
+  id: string;
+  rocket_id: string;
+  version_number: number;
+  name: string;
+  description?: string;
+  parts: Json;
+  motor_id: string;
+  drag_coefficient: number;
+  units: string;
+  created_at: string;
+  created_by_action?: string; // What AI action created this version
+  is_current: boolean;
+}
+
+/**
  * Convert any value to a Json-compatible format for Supabase
  * This ensures compatibility with the database schema
  */
