@@ -51,6 +51,98 @@ export class ChatService {
     tokensUsed?: number;
   }): Promise<ChatMessage> {
     try {
+      // Handle session_id validation to prevent foreign key constraint violations
+      let validatedSessionId: string | null = null;
+      
+      if (sessionId) {
+        // Check if this session exists in the database
+        const { data: existingSession, error: sessionCheckError } = await supabase
+          .from('user_sessions')
+          .select('session_id')
+          .eq('session_id', sessionId)
+          .eq('user_id', userId)
+          .maybeSingle();
+
+        if (existingSession && !sessionCheckError) {
+          // Session exists in database, safe to use
+          validatedSessionId = sessionId;
+          console.log('✅ Session exists in database, linking chat message to session:', sessionId);
+        } else {
+          // Session doesn't exist in database yet, create it
+          console.log('⚠️ Session not found in database, creating new session. Session ID:', sessionId);
+          
+          try {
+            const newSessionData = {
+              user_id: userId,
+              session_id: sessionId,
+              started_at: new Date().toISOString(),
+              last_activity: new Date().toISOString(),
+              metadata: {},
+              rocket_count: 0,
+              simulation_count: 0
+            };
+
+            const { data: newSession, error: createError } = await supabase
+              .from('user_sessions')
+              .insert(newSessionData)
+              .select('session_id')
+              .single();
+
+            if (newSession && !createError) {
+              validatedSessionId = sessionId;
+              console.log('✅ Created new session in database:', sessionId);
+            } else {
+              console.error('❌ Failed to create session:', createError);
+              validatedSessionId = null;
+            }
+          } catch (createError) {
+            console.error('❌ Exception creating session:', createError);
+            validatedSessionId = null;
+          }
+        }
+      }
+
+      // If we couldn't validate or create a session, return fallback
+      if (!validatedSessionId) {
+        console.log('⚠️ No valid session available, returning fallback message');
+        return {
+          id: `fallback-${Date.now()}`,
+          user_id: userId,
+          session_id: sessionId,
+          rocket_id: rocketId,
+          role,
+          content,
+          context_data: contextData,
+          agent_actions: agentActions,
+          tokens_used: tokensUsed,
+          created_at: new Date().toISOString()
+        } as ChatMessage;
+      }
+
+      // Handle rocket_id validation to prevent foreign key constraint violations
+      let validatedRocketId: string | null = null;
+      
+      if (rocketId) {
+        // Check if this rocket exists in the database
+        const { data: existingRocket, error: rocketCheckError } = await supabase
+          .from('rockets')
+          .select('id')
+          .eq('id', rocketId)
+          .eq('user_id', userId)
+          .maybeSingle();
+
+        if (existingRocket && !rocketCheckError) {
+          // Rocket exists in database, safe to use
+          validatedRocketId = rocketId;
+          console.log('✅ Rocket exists in database, linking chat message to rocket:', rocketId);
+        } else {
+          // Rocket doesn't exist in database yet
+          console.log('⚠️ Rocket not found in database, saving chat message without rocket link. Rocket ID:', rocketId);
+          console.log('   This is normal for new/unsaved rocket designs.');
+          validatedRocketId = null;
+        }
+      }
+
       // Generate embedding for semantic search
       const embedding = await this.generateMessageEmbedding(content);
       
@@ -58,8 +150,8 @@ export class ChatService {
         .from('chat_messages')
         .insert({
           user_id: userId,
-          session_id: sessionId,
-          rocket_id: rocketId,
+          session_id: validatedSessionId, // Use validated session_id
+          rocket_id: validatedRocketId, // Use validated rocket_id or null
           role,
           content,
           context_data: contextData,

@@ -7,7 +7,11 @@ export async function POST(req: NextRequest) {
     const { history, rocket, environment, simulationHistory, analysisHistory, userPreferences, sessionInfo } = await req.json();
     
     // Call the Python agent service - append /reason to base URL
-    const agentUrl = process.env.AGENT_URL || "http://agentpy:8002";
+    // Force runtime reading of environment variable
+    const agentUrl = process.env.AGENT_URL || "https://rocket-agentpy.internal.yellowhill-85e5bd96.eastus.azurecontainerapps.io";
+    console.log(`DEBUG: Using AGENT_URL: ${agentUrl}`);
+    console.log(`DEBUG: process.env.AGENT_URL: ${process.env.AGENT_URL}`);
+    console.log(`DEBUG: All env vars with AGENT: ${JSON.stringify(Object.keys(process.env).filter(k => k.includes('AGENT')))}`);
     
     // Prepare the comprehensive request payload
     const requestPayload: any = { 
@@ -36,6 +40,8 @@ export async function POST(req: NextRequest) {
     if (sessionInfo) {
       requestPayload.sessionInfo = sessionInfo;
     }
+    
+    console.log(`DEBUG: Making request to: ${agentUrl}/reason`);
     
     const r = await fetch(`${agentUrl}/reason`, {
       method: "POST",

@@ -10,10 +10,6 @@ const nextConfig = {
     // your project has ESLint errors.
     ignoreDuringBuilds: true,
   },
-  env: {
-    AGENT_URL: process.env.AGENT_URL || 'http://localhost:8002',
-    ROCKETPY_URL: process.env.ROCKETPY_URL || 'http://localhost:8000',
-  },
   async rewrites() {
     return [
       {

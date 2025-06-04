@@ -16,6 +16,10 @@ declare global {
   }
 }
 
+// Track if rocket has been modified during action dispatch
+let rocketModified = false;
+let modificationDescription = '';
+
 // Helper function to validate and fix atmospheric model values
 function validateAtmosphericModel(atmosphericModel: any): string {
   // Ensure atmospheric model is one of the valid values
@@ -66,167 +70,31 @@ function cleanEnvironmentData(environment: any): any {
 
 // Function to run a quick simulation (client-side)
 export function runQuickSim() {
-  // Client-side physics simulation using rocket data from store
-  const { rocket, setSim } = useRocket.getState();
+  const { rocket, setSimulating, setSim, setLastSimulationType } = useRocket.getState();
   
-  console.log('🚀 Running quick simulation with rocket:', rocket);
+  setSimulating(true);
+  setLastSimulationType('quick');
   
-  // Get motor data (in production, this would come from a motor database)
-  // Define our complete propulsion systems database
-  const propulsionSystems = {
-    'mini-motor': {
-      thrust: 15, // N
-      burnTime: 1.8, // s
-      isp: 180, // s
-      type: 'solid',
-      propellantMass: 0.010, // kg
-      dryMass: 0.008, // kg
-      totalImpulse: 27 // N·s
-    },
-    'default-motor': {
-      thrust: 32, // N
-      burnTime: 2.4, // s
-      isp: 200, // s
-      type: 'solid',
-      propellantMass: 0.040, // kg
-      dryMass: 0.015, // kg
-      totalImpulse: 76.8 // N·s
-    },
-    'high-power': {
-      thrust: 60, // N
-      burnTime: 3.2, // s
-      isp: 220, // s
-      type: 'solid',
-      propellantMass: 0.090, // kg
-      dryMass: 0.025, // kg
-      totalImpulse: 192 // N·s
-    },
-    'super-power': {
-      thrust: 120, // N
-      burnTime: 4.0, // s
-      isp: 240, // s
-      type: 'solid',
-      propellantMass: 0.200, // kg
-      dryMass: 0.050, // kg
-      totalImpulse: 480 // N·s
-    },
-    'small-liquid': {
-      thrust: 500, // N
-      burnTime: 30, // s
-      isp: 300, // s
-      type: 'liquid',
-      propellantMass: 1.5, // kg
-      dryMass: 0.8, // kg
-      totalImpulse: 15000 // N·s
-    },
-    'medium-liquid': {
-      thrust: 2000, // N
-      burnTime: 45, // s
-      isp: 320, // s
-      type: 'liquid',
-      propellantMass: 6.5, // kg
-      dryMass: 2.0, // kg
-      totalImpulse: 90000 // N·s
-    },
-    'large-liquid': {
-      thrust: 8000, // N
-      burnTime: 60, // s
-      isp: 340, // s
-      type: 'liquid',
-      propellantMass: 24.0, // kg
-      dryMass: 5.0, // kg
-      totalImpulse: 480000 // N·s
-    },
-    'hybrid-engine': {
-      thrust: 1200, // N
-      burnTime: 20, // s
-      isp: 280, // s
-      type: 'hybrid',
-      propellantMass: 4.5, // kg
-      dryMass: 1.2, // kg
-      totalImpulse: 24000 // N·s
-    }
-  };
-  
-  // Get motor data from database or use default
-  const selectedMotor = propulsionSystems[rocket.motorId as keyof typeof propulsionSystems] || propulsionSystems['default-motor'];
-  const motorThrust = selectedMotor.thrust;
-  const burnTime = selectedMotor.burnTime;
-  const isp = selectedMotor.isp;
-  
-  console.log('🔧 Selected motor:', selectedMotor);
-  
-  // Calculate mass based on parts
-  const mass = estimateRocketMass(rocket);
-  
-  // Add engine mass
-  const totalMass = mass + selectedMotor.dryMass + selectedMotor.propellantMass;
-  const dragCoefficient = rocket.Cd;
-  
-  console.log('📊 Mass calculations:', { mass, totalMass, dragCoefficient });
-  
-  // More sophisticated physics calculations
-  let maxAltitude, maxVelocity, maxAcceleration;
-  
-  if (selectedMotor.type === 'liquid') {
-    // Liquid engines need special handling
-    console.log('Calculating liquid engine performance...');
-    // More accurate rocket equation for liquid engines
-    const exhaustVelocity = isp * 9.81; // m/s
-    const deltaV = exhaustVelocity * Math.log(totalMass / (totalMass - selectedMotor.propellantMass)) 
-                  - burnTime * 9.81 * 0.2; // with gravity losses
+  // Simple physics calculation
+  setTimeout(() => {
+    const mass = rocket.parts.length * 0.1; // Simplified mass calculation
+    const thrust = 50; // Simplified thrust
+    const altitude = (thrust / mass) * 10; // Very simplified
     
-    // More accurate altitude estimation with air density effects
-    const effectiveDeltaV = deltaV * 0.85; // 85% efficiency for drag and other losses
-    maxVelocity = effectiveDeltaV;
-    maxAcceleration = motorThrust / totalMass; // m/s²
+    const result = {
+      maxAltitude: altitude + Math.random() * 50,
+      maxVelocity: Math.sqrt(2 * 9.81 * altitude),
+      apogeeTime: Math.sqrt(2 * altitude / 9.81),
+      trajectory: { time: [], position: [], velocity: [], acceleration: [] }, // Proper trajectory structure
+      flightEvents: [
+        { time: 0, event: 'Liftoff', name: 'Liftoff', altitude: 0 },
+        { time: Math.sqrt(2 * altitude / 9.81), event: 'Apogee', name: 'Apogee', altitude }
+      ]
+    };
     
-    // For liquid engines, consider powered flight contribution
-    const poweredAltitude = (motorThrust / totalMass - 9.81) * (burnTime**2) / 2 * 0.8;
-    const ballisticAltitude = (effectiveDeltaV**2) / (2 * 9.81);
-    maxAltitude = Math.max(0, poweredAltitude) + ballisticAltitude;
-    
-    // For very high altitudes, apply density correction
-    if (maxAltitude > 10000) {
-      maxAltitude *= 1.2; // Thinner air at high altitudes means less drag
-    }
-  } else {
-    // Standard calculation for solid motors
-    const acceleration = motorThrust / totalMass;
-    maxAcceleration = acceleration;
-    const impulse = motorThrust * burnTime;
-    const velocityFactor = selectedMotor.type === 'hybrid' ? 0.85 : 0.8;
-    
-    // Calculate burnout velocity using impulse (F*t = m*Δv)
-    maxVelocity = impulse / totalMass * velocityFactor;
-    
-    // Add powered flight contribution and ballistic flight
-    const poweredHeight = 0.5 * acceleration * (burnTime * burnTime) * 0.8;
-    const ballisticHeight = (maxVelocity * maxVelocity) / (2 * 9.81) * 0.7;
-    maxAltitude = poweredHeight + ballisticHeight;
-  }
-  
-  // Calculate stability margin (calibers)
-  const stabilityMargin = calculateStability(rocket);
-  
-  console.log('📈 Simulation results:', { maxAltitude, maxVelocity, maxAcceleration, stabilityMargin, motorThrust });
-  
-  // Set simulation results in store
-  const simResults = {
-    maxAltitude,
-    maxVelocity,
-    maxAcceleration,
-    apogeeTime: maxVelocity / 9.8,
-    stabilityMargin
-  };
-  
-  console.log('💾 Setting simulation results in store:', simResults);
-  setSim(simResults);
-  
-  // Dispatch event to notify UI components
-  window.dispatchEvent(new CustomEvent('simulationComplete', { 
-    detail: simResults 
-  }));
+    setSim(result);
+    setSimulating(false);
+  }, 1000);
 }
 
 // Function to run a high-fidelity simulation (server-side)
@@ -332,309 +200,292 @@ export function calculateStability(rocket: any) {
 
 // Main dispatcher function to process agent actions
 export function dispatchActions(actions: any[]) {
-  const { updateRocket, setSim, saveRocketVersionWithDescription } = useRocket.getState();
+  const { 
+    updateRocket, 
+    setSim, 
+    saveRocketVersionWithDescription,
+    savedRockets,
+    rocket: currentRocket
+  } = useRocket.getState();
   
-  console.log('🎯 Dispatching actions:', actions);
+  console.log('🎯 Starting to dispatch actions:', actions);
+  console.log('🚀 Current rocket state before actions:', JSON.stringify(currentRocket.parts, null, 2));
   
-  // Get initial state for comparison
-  const initialState = useRocket.getState().rocket;
-  console.log('🚀 Rocket state BEFORE dispatching actions:', JSON.stringify(initialState.parts, null, 2));
+  // Reset modification tracking
+  rocketModified = false;
+  modificationDescription = '';
   
-  // Track if any changes were made to the rocket design
-  let rocketModified = false;
-  let modificationDescription = '';
+  // Check if current rocket is already saved (exists in database)
+  const isExistingRocket = savedRockets.some(r => r.id === currentRocket.id);
   
-  actions.forEach((a) => {
-    console.log('🔄 Processing action:', a);
+  // Clone the current rocket once for all modifications
+  let modifiedRocket = structuredClone(currentRocket);
+  let actualChanges = false; // Track if we made actual changes
+  
+  // CLEAN UP ACTIONS - Fix truncated IDs with "..." 
+  const cleanedActions = actions.map(action => {
+    if (action.id && typeof action.id === 'string' && action.id.endsWith('...')) {
+      // AI agent is adding "..." to IDs - try to find the real ID
+      const truncatedId = action.id.replace('...', '');
+      console.log(`🔧 AI added "..." to ID. Truncated: "${action.id}" → Looking for: "${truncatedId}"`);
+      
+      // Find the real part ID that starts with the truncated version
+      const realPart = currentRocket.parts.find(part => 
+        part.id === truncatedId || part.id.startsWith(truncatedId)
+      );
+      
+      if (realPart) {
+        console.log(`✅ Found real part ID: "${realPart.id}" for truncated "${action.id}"`);
+        return { ...action, id: realPart.id };
+      } else {
+        console.warn(`⚠️ Could not find real part for truncated ID: "${action.id}"`);
+        // Try partial matching - find part that contains the truncated ID
+        const partialMatch = currentRocket.parts.find(part => 
+          part.id.includes(truncatedId) || truncatedId.includes(part.id)
+        );
+        if (partialMatch) {
+          console.log(`🔍 Found partial match: "${partialMatch.id}" for "${action.id}"`);
+          return { ...action, id: partialMatch.id };
+        }
+      }
+    }
+    return action;
+  });
+  
+  console.log('🧹 Cleaned actions:', cleanedActions);
+  
+  cleanedActions.forEach((action, index) => {
+    console.log(`🔄 Processing action ${index + 1}/${cleanedActions.length}:`, action);
     
-    // Dispatch event for UI components to react to agent actions
-    window.dispatchEvent(new CustomEvent('agentAction', { 
-      detail: { action: a.action, ...a } 
-    }));
+    // Store original state for this action
+    const beforeAction = JSON.stringify(modifiedRocket.parts);
     
-    switch (a.action) {
+    switch (action.action) {
       case "add_part":
-        console.log('➕ Adding part:', a.type, a.props);
+        console.log(`➕ Adding ${action.type} part with props:`, action.props);
+        const newPart: Part = {
+          id: crypto.randomUUID(),
+          type: action.type,
+          color: action.props.color || '#A0A7B8',
+          ...action.props
+        };
+        console.log('➕ New part created:', newPart);
+        modifiedRocket.parts.push(newPart);
         rocketModified = true;
-        modificationDescription = `Added ${a.type} ${a.props?.color ? `(${a.props.color})` : ''}`;
-        updateRocket((r) => {
-          r.parts.push({ 
-            id: crypto.randomUUID(), 
-            type: a.type, 
-            color: a.props?.color || "white",
-            ...a.props 
-          });
-          return r;
-        }, true);
+        actualChanges = true;
+        modificationDescription = `Added ${action.type}${action.props.color ? ` (${action.props.color})` : ''}`;
         break;
-      case "update_rocket":
-        console.log('🚀 Updating rocket properties:', a.props);
-        rocketModified = true;
-        modificationDescription = `Updated rocket: ${Object.keys(a.props).join(', ')}`;
-        updateRocket((r) => {
-          Object.assign(r, a.props);
-          return r;
-        }, true);
-        break;
-      case "update_part":
-        console.log('🔧 Updating part:', a.id, a.props);
-        rocketModified = true;
-        modificationDescription = `Modified ${a.id} part: ${Object.keys(a.props).join(', ')}`;
-        updateRocket((r) => {
-          if (a.id === "all") {
-            // Update all parts
-            r.parts.forEach(part => {
-              Object.assign(part, a.props);
-            });
-          } else {
-            let p = null;
-            
-            // First try to find by exact ID
-            p = r.parts.find((part) => part.id === a.id);
-            
-            // If not found by exact ID, try partial ID match (for agent abbreviated IDs)
-            if (!p && (a.id.includes('...') || a.id.length < 36)) {
-              // Handle both "fin1..." and truncated UUIDs like "e25215ba"
-              const partialId = a.id.includes('...') ? a.id.replace('...', '') : a.id;
-              p = r.parts.find((part) => part.id.startsWith(partialId));
-              if (p) {
-                console.log(`🔄 Found part by partial ID: ${a.id} -> ${p.id}`);
-              }
-            }
-            
-            // If still not found, try to find by type (for agent compatibility)
-            if (!p) {
-              const typeMap: { [key: string]: string } = {
-                'body1': 'body',
-                'nose1': 'nose', 
-                'finset1': 'fin',
-                'fin1': 'fin',
-                'engine1': 'engine'
-              };
-              
-              // Extract type from ID if it contains type info
-              let targetType = typeMap[a.id] || a.id;
-              
-              // Handle abbreviated IDs like "fin1..."
-              if (a.id.includes('...')) {
-                const baseId = a.id.replace('...', '');
-                targetType = typeMap[baseId] || baseId;
-              }
-              
-              // Try direct type match
-              if (['nose', 'body', 'fin', 'engine'].includes(targetType)) {
-                p = r.parts.find((part) => part.type === targetType);
-              }
-              
-              if (p) {
-                console.log(`🔄 Found part by type: ${a.id} -> ${targetType} (${p.id})`);
-              } else {
-                // If part doesn't exist and we know the type, create it
-                if (typeMap[a.id] || ['nose', 'body', 'fin', 'engine'].includes(targetType)) {
-                  const newPartType = typeMap[a.id] || targetType;
-                  console.log(`➕ Creating missing ${newPartType} part for ${a.id}`);
-                  
-                  // Create default part based on type
-                  const defaultParts: { [key: string]: any } = {
-                    'nose': { shape: 'ogive', length: 10, baseØ: 5, color: '#A0A7B8' },
-                    'body': { Ø: 5, length: 20, color: '#8C8D91' },
-                    'fin': { root: 8, span: 6, sweep: 4, color: '#A0A7B8' },
-                    'engine': { thrust: 32, Isp: 200, color: '#0066FF' }
-                  };
-                  
-                  const newPart = {
-                    id: crypto.randomUUID(),
-                    type: newPartType,
-                    ...defaultParts[newPartType]
-                  };
-                  
-                  r.parts.push(newPart);
-                  p = newPart; // Assign to p for later processing
-                  console.log(`✅ Created new ${newPartType} part`);
-                }
-              }
-            }
-            
-            if (p) {
-              // Handle property name mappings for agent compatibility
-              const props = { ...a.props };
-              
-              // Map unicode diameter symbols to property names
-              if (props['Ø']) {
-                if (p.type === 'body') {
-                  props['Ø'] = props['Ø']; // Keep as is for body
-                } else if (p.type === 'nose') {
-                  props['baseØ'] = props['Ø']; // Map to baseØ for nose
-                  delete props['Ø'];
-                }
-              }
-              if (props['baseØ']) {
-                props['baseØ'] = props['baseØ']; // Keep as is
-              }
-              
-              console.log(`🔧 Before update - Part ${p.type}:`, JSON.stringify(p));
-              Object.assign(p, props);
-              console.log(`✅ After update - Part ${p.type}:`, JSON.stringify(p));
-              console.log(`🎯 Updated part ${p.type} (${p.id}) with:`, props);
-            } else {
-              console.warn(`❌ Part not found for update: ${a.id}`);
-              console.warn(`📋 Available parts:`, r.parts.map(p => ({ id: p.id, type: p.type })));
-            }
-          }
-          return r;
-        }, true);
-        break;
-      case "remove_part":
-        console.log('🗑️ Removing part:', a.id);
-        rocketModified = true;
-        modificationDescription = `Removed ${a.id} part`;
-        updateRocket((r) => {
-          // First try to find by exact ID
-          let partIndex = r.parts.findIndex((p) => p.id === a.id);
-          
-          // If not found by ID, try to find by type (for agent compatibility)
-          if (partIndex === -1) {
-            const typeMap: { [key: string]: string } = {
-              'body1': 'body',
-              'nose1': 'nose', 
-              'finset1': 'fin',
-              'engine1': 'engine'
-            };
-            
-            const targetType = typeMap[a.id] || a.id;
-            partIndex = r.parts.findIndex((part) => part.type === targetType);
-            
-            if (partIndex !== -1) {
-              console.log(`🔄 Found part by type: ${a.id} -> ${targetType}`);
-            }
-          }
-          
-          if (partIndex !== -1) {
-            r.parts.splice(partIndex, 1);
-            console.log(`✅ Removed part at index ${partIndex}`);
-          } else {
-            console.warn(`❌ Part not found for removal: ${a.id}`);
-          }
-          return r;
-        }, true);
-        break;
-      case "change_motor":
-      case "update_motor":
-        console.log('🚀 Changing motor to:', a.motorId || a.id);
-        rocketModified = true;
-        modificationDescription = `Changed motor to ${a.motorId || a.id}`;
-        updateRocket((r) => {
-          r.motorId = a.motorId || a.id;
-          return r;
-        }, true);
-        break;
-      case "get_motor":
-        console.log('ℹ️ Getting motor info for:', a.id);
-        // This is typically an informational action that doesn't change state
-        // The agent will use this info to make decisions
-        break;
-      case "run_sim":
-        console.log('🚀 Running simulation with fidelity:', a.fidelity);
-        // Dispatch specific event for simulation actions
-        window.dispatchEvent(new CustomEvent('agentAction', { 
-          detail: { action: 'run_sim', type: 'simulation', showMetrics: true } 
-        }));
         
-        a.fidelity === "quick"
-          ? runQuickSim()          // client physics
-          : runHighFiSim();        // POST /api/hifi (unchanged)
+      case "update_part":
+        console.log(`🔧 Updating part ${action.id} with props:`, action.props);
+        const part = modifiedRocket.parts.find((p) => p.id === action.id);
+        if (part) {
+          console.log('🔧 Found part to update:', part);
+          console.log('🔧 Props to apply:', action.props);
+          
+          // Check if this will actually change anything
+          let willChange = false;
+          Object.keys(action.props).forEach(key => {
+            if (part[key as keyof Part] !== action.props[key]) {
+              willChange = true;
+              console.log(`🔧 Property ${key} will change: ${part[key as keyof Part]} → ${action.props[key]}`);
+            } else {
+              console.log(`🔧 Property ${key} unchanged: ${part[key as keyof Part]}`);
+            }
+          });
+          
+          if (willChange) {
+            Object.assign(part, action.props);
+            rocketModified = true;
+            actualChanges = true;
+            modificationDescription = `Modified ${part.type}${action.props.color ? ` color to ${action.props.color}` : ''}`;
+            console.log('🔧 Part after update:', part);
+          } else {
+            console.log('🔧 No actual changes needed for this part');
+          }
+        } else {
+          console.warn('🔧 Part not found with ID:', action.id);
+          console.warn('🔧 Available parts:', modifiedRocket.parts.map(p => ({ id: p.id, type: p.type })));
+          
+          // Try fuzzy matching as backup
+          const fuzzyMatch = modifiedRocket.parts.find(p => 
+            p.id.includes(action.id) || action.id.includes(p.id)
+          );
+          if (fuzzyMatch) {
+            console.log('🔍 Fuzzy match found:', fuzzyMatch.id);
+            Object.assign(fuzzyMatch, action.props);
+            rocketModified = true;
+            actualChanges = true;
+            modificationDescription = `Modified ${fuzzyMatch.type} (fuzzy match)`;
+          }
+        }
         break;
-      case "run_simulation":
-      case "run_professional_simulation":
-        handleProfessionalSimulation(a);
+        
+      case "remove_part":
+        console.log(`🗑️ Removing part ${action.id}`);
+        const partIndex = modifiedRocket.parts.findIndex((p) => p.id === action.id);
+        if (partIndex !== -1) {
+          const removedPart = modifiedRocket.parts[partIndex];
+          modificationDescription = `Removed ${removedPart.type}`;
+          console.log('🗑️ Removing part:', removedPart);
+          modifiedRocket.parts.splice(partIndex, 1);
+          rocketModified = true;
+          actualChanges = true;
+        } else {
+          console.warn('🗑️ Part not found for removal with ID:', action.id);
+        }
         break;
-      case "analyze_comprehensive_stability":
-        handleStabilityAnalysis(a);
+        
+      case "change_motor":
+        console.log(`🚀 Changing motor to:`, action.motorId);
+        if (modifiedRocket.motorId !== action.motorId) {
+          modifiedRocket.motorId = action.motorId;
+          rocketModified = true;
+          actualChanges = true;
+          modificationDescription = `Changed motor to ${action.motorId}`;
+        } else {
+          console.log('🚀 Motor already set to this value');
+        }
         break;
-      case "analyze_comprehensive_performance":
-        handlePerformanceAnalysis(a);
+        
+      case "update_rocket":
+        console.log(`🔧 Updating rocket with:`, action);
+        let rocketChanged = false;
+        if (action.name && modifiedRocket.name !== action.name) {
+          modifiedRocket.name = action.name;
+          rocketChanged = true;
+        }
+        if (action.Cd !== undefined && modifiedRocket.Cd !== action.Cd) {
+          modifiedRocket.Cd = action.Cd;
+          rocketChanged = true;
+        }
+        if (action.units && modifiedRocket.units !== action.units) {
+          modifiedRocket.units = action.units;
+          rocketChanged = true;
+        }
+        if (rocketChanged) {
+          rocketModified = true;
+          actualChanges = true;
+          modificationDescription = action.description || 'Updated rocket configuration';
+        }
         break;
-      case "optimize_rocket_design":
-        handleDesignOptimization(a);
+        
+      case "run_sim":
+        // Simulations don't modify the rocket design
+        console.log(`📊 Running simulation with fidelity:`, action.fidelity);
+        if (action.fidelity === "quick") {
+          runQuickSim();
+        } else {
+          runHighFiSim();
+        }
         break;
-      case "run_advanced_monte_carlo":
-        handleMonteCarloAnalysis(a);
-        break;
-      case "set_professional_environment":
-        handleEnvironmentSetup(a);
-        break;
-      case "analyze_motor_performance_detailed":
-        handleMotorAnalysis(a);
-        break;
-      case "generate_flight_report":
-        handleFlightReport(a);
-        break;
-      case "validate_design_requirements":
-        handleRequirementsValidation(a);
-        break;
-      case "analyze_trajectory":
-        analyzeTrajectory(a);
-        break;
-      case "run_monte_carlo":
-        runMonteCarloAnalysis(a);
-        break;
-      case "optimize_design":
-        optimizeDesign(a);
-        break;
-      case "analyze_stability":
-        analyzeStability(a);
-        break;
-      case "set_environment":
-        console.log('🌍 Setting environment conditions:', a);
-        setEnvironmentConditions(a);
-        break;
-      case "set_launch_parameters":
-        console.log('🚀 Setting launch parameters:', a);
-        setLaunchParameters(a);
-        break;
-      case "analyze_motor":
-        console.log('🔥 Analyzing motor:', a.motor_id);
-        analyzeMotorPerformance(a);
-        break;
-      case "export_data":
-        console.log('💾 Exporting simulation data:', a.format);
-        exportSimulationData(a);
-        break;
-      case "predict_recovery":
-        console.log('🪂 Predicting recovery:', a);
-        predictRecovery(a);
-        break;
-      // Weather-related actions
-      case "get_weather":
-        handleGetWeather(a);
-        break;
-      case "assess_launch_conditions":
-        handleAssessLaunchConditions(a);
-        break;
-      case "get_forecast":
-        handleGetForecast(a);
-        break;
-      case "analyze_atmosphere":
-        handleAnalyzeAtmosphere(a);
-        break;
-      case "recommend_launch_window":
-        handleRecommendLaunchWindow(a);
-        break;
-      case "set_location":
-        handleSetLocation(a);
-        break;
+        
       default:
-        console.warn('❓ Unknown action:', a.action);
-        break;
+        console.warn(`❓ Unknown action:`, action.action);
+    }
+    
+    // Check if this action actually changed anything
+    const afterAction = JSON.stringify(modifiedRocket.parts);
+    const actionMadeChange = beforeAction !== afterAction;
+    console.log(`🔍 Action ${index + 1} made changes:`, actionMadeChange);
+    if (actionMadeChange) {
+      actualChanges = true;
     }
   });
   
-  // Get final state for comparison
-  const finalState = useRocket.getState().rocket;
-  console.log('🚀 Rocket state AFTER dispatching actions:', JSON.stringify(finalState.parts, null, 2));
+  console.log('🏁 Action processing complete:');
+  console.log('📊 Rocket was flagged as modified:', rocketModified);
+  console.log('📊 Actual changes detected:', actualChanges);
+  console.log('📊 Original parts count:', currentRocket.parts.length);
+  console.log('📊 Modified parts count:', modifiedRocket.parts.length);
   
-  if (rocketModified) {
-    saveRocketVersionWithDescription(modificationDescription);
+  // Only proceed if we have actual changes
+  if (actualChanges && rocketModified) {
+    console.log('🔄 Applying rocket modifications...');
+    console.log('🚀 Modified rocket parts:', JSON.stringify(modifiedRocket.parts, null, 2));
+    
+    // FORCE EVENT DISPATCH to notify MiddlePanel for force re-render
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('rocketActionsDispatched', {
+        detail: { 
+          actionsCount: actions.length,
+          modifications: modificationDescription,
+          partsCount: modifiedRocket.parts.length 
+        }
+      }));
+      console.log('📡 Dispatched rocketActionsDispatched event');
+    }
+    
+    // Store original state for comparison
+    const originalPartsJson = JSON.stringify(currentRocket.parts);
+    const modifiedPartsJson = JSON.stringify(modifiedRocket.parts);
+    
+    console.log('🔍 Final comparison:');
+    console.log('📄 Original vs Modified different:', originalPartsJson !== modifiedPartsJson);
+    
+    // AGGRESSIVE UPDATE - Force React to see this as a completely new object
+    updateRocket(() => {
+      // Create completely new objects with new references
+      const newRocket = {
+        ...modifiedRocket,
+        id: modifiedRocket.id, // Keep same ID
+        parts: modifiedRocket.parts.map(part => ({ ...part })), // New part objects
+        // Add a timestamp to force reference change
+        _lastModified: Date.now()
+      };
+      console.log('🔄 Returning completely new rocket object with', newRocket.parts.length, 'parts');
+      return newRocket;
+    }, true); // Skip auto-save initially
+    
+    // FORCE IMMEDIATE VERIFICATION - No timeout delay
+    const finalRocketState = useRocket.getState().rocket;
+    const finalPartsJson = JSON.stringify(finalRocketState.parts);
+    const finalPartsCount = finalRocketState.parts.length;
+    
+    console.log('🏁 IMMEDIATE Verification:');
+    console.log('📊 Final parts count:', finalPartsCount);
+    console.log('📊 Original parts count:', currentRocket.parts.length);
+    console.log('📊 Final vs Original JSON different:', finalPartsJson !== originalPartsJson);
+    console.log('✅ Update verification:', finalPartsJson !== originalPartsJson || finalPartsCount !== currentRocket.parts.length);
+    
+    // ALWAYS FORCE A SECOND UPDATE to ensure React sees the change
+    setTimeout(() => {
+      console.log('🔄 SECOND FORCE UPDATE to ensure React re-renders');
+      const doubleCheckState = useRocket.getState().rocket;
+      updateRocket(() => {
+        return {
+          ...doubleCheckState,
+          _forceUpdate: Date.now() // Force another reference change
+        };
+      }, false); // Allow auto-save on second update
+      
+      // Database handling after forced updates
+      if (isExistingRocket) {
+        console.log('💾 Creating new version for existing rocket:', modificationDescription);
+        saveRocketVersionWithDescription(
+          `AI ${actions[0]?.action || 'modification'}: ${modificationDescription}`,
+          actions[0]?.action || 'ai_modification'
+        );
+      } else {
+        console.log('💾 Saving new rocket after modifications:', modificationDescription);
+        useRocket.getState().saveCurrentRocket();
+      }
+    }, 50);
+    
+  } else {
+    console.log('ℹ️ No actual rocket modifications detected - skipping update');
+    console.log('🔍 Debug info:');
+    console.log('   - rocketModified flag:', rocketModified);
+    console.log('   - actualChanges detected:', actualChanges);
+    console.log('   - Actions processed:', actions.length);
+    actions.forEach((action, i) => {
+      console.log(`   - Action ${i + 1}:`, action.action, action);
+    });
+    
+    // If we have non-modifying actions (like simulations), still process them
+    if (actions.some(a => a.action === 'run_sim')) {
+      console.log('📊 Processing simulation actions without rocket modifications');
+    }
   }
 }
 

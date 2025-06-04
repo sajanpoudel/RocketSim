@@ -1,0 +1,66 @@
+name: Deploy to Azure Container Apps
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  AZURE_CONTAINER_REGISTRY: rocketcursoracr
+  RESOURCE_GROUP: rocket-cursor-rg
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Azure
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Log in to Container Registry
+      run: az acr login --name ${{ env.AZURE_CONTAINER_REGISTRY }}
+
+    - name: Build and push images
+      run: |
+        # Get ACR login server
+        ACR_LOGIN_SERVER=$(az acr show --name ${{ env.AZURE_CONTAINER_REGISTRY }} --resource-group ${{ env.RESOURCE_GROUP }} --query loginServer -o tsv)
+        
+        # Build and push frontend
+        docker build -t $ACR_LOGIN_SERVER/rocket-web:${{ github.sha }} .
+        docker push $ACR_LOGIN_SERVER/rocket-web:${{ github.sha }}
+        
+        # Build and push agentpy
+        docker build -t $ACR_LOGIN_SERVER/rocket-agentpy:${{ github.sha }} ./services/agentpy
+        docker push $ACR_LOGIN_SERVER/rocket-agentpy:${{ github.sha }}
+        
+        # Build and push rocketpy
+        docker build -t $ACR_LOGIN_SERVER/rocket-rocketpy:${{ github.sha }} ./services/rocketpy
+        docker push $ACR_LOGIN_SERVER/rocket-rocketpy:${{ github.sha }}
+
+    - name: Deploy to Container Apps
+      run: |
+        ACR_LOGIN_SERVER=$(az acr show --name ${{ env.AZURE_CONTAINER_REGISTRY }} --resource-group ${{ env.RESOURCE_GROUP }} --query loginServer -o tsv)
+        
+        # Update container apps
+        az containerapp update \
+          --name rocket-rocketpy \
+          --resource-group ${{ env.RESOURCE_GROUP }} \
+          --image $ACR_LOGIN_SERVER/rocket-rocketpy:${{ github.sha }}
+          
+        az containerapp update \
+          --name rocket-agentpy \
+          --resource-group ${{ env.RESOURCE_GROUP }} \
+          --image $ACR_LOGIN_SERVER/rocket-agentpy:${{ github.sha }}
+          
+        az containerapp update \
+          --name rocket-web \
+          --resource-group ${{ env.RESOURCE_GROUP }} \
+          --image $ACR_LOGIN_SERVER/rocket-web:${{ github.sha }} 

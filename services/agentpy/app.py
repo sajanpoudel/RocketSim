@@ -339,14 +339,29 @@ async def reason(req: ChatRequest):
     Primary endpoint to process user requests and return agent responses with actions.
     """
     try:
+        print(f"DEBUG: Received request - Messages: {len(req.messages)}, Rocket ID: {req.rocket.get('id', 'unknown')}")
+        
         # Clean messages to ensure proper format for Agents SDK
         cleaned_messages = clean_messages(req.messages)
         latest_message = cleaned_messages[-1]["content"] if cleaned_messages else ""
+        
+        print(f"DEBUG: Latest message: {latest_message[:100]}...")
+        
+        # Check if we have required data
+        if not req.rocket or not isinstance(req.rocket, dict):
+            print("ERROR: Invalid rocket data")
+            raise HTTPException(status_code=422, detail="Invalid rocket data provided")
+            
+        if not cleaned_messages:
+            print("ERROR: No valid messages")
+            raise HTTPException(status_code=422, detail="No valid messages provided")
         
         # Prepare the context with the current rocket state
         system_message = create_enhanced_system_message("master", req, latest_message)
         messages = [system_message] + cleaned_messages
         rocket_json_str = json.dumps(req.rocket)
+        
+        print(f"DEBUG: System message created, rocket JSON length: {len(rocket_json_str)}")
         
         # Track the agent flow for transparency
         agent_flow = []
@@ -358,6 +373,8 @@ async def reason(req: ChatRequest):
         router_system_message = create_enhanced_system_message("router", req, latest_message)
         router_messages = [router_system_message] + cleaned_messages
         
+        print("DEBUG: About to run router agent...")
+        
         router_result = await router_runner.run(
             router_agent,
             input=router_messages,
@@ -365,8 +382,12 @@ async def reason(req: ChatRequest):
             max_turns=30  # Much higher for complex routing decisions
         )
         
+        print(f"DEBUG: Router result type: {type(router_result)}")
+        
         # Get the routed agent name
         routed_agent_name = router_result.completion.strip().lower() if hasattr(router_result, 'completion') else router_result.final_output.strip().lower() if hasattr(router_result, 'final_output') else ""
+        
+        print(f"DEBUG: Routed to agent: {routed_agent_name}")
         
         # Track which agents will execute
         primary_agent_name = "master"  # Default
@@ -393,6 +414,8 @@ async def reason(req: ChatRequest):
             primary_agent_name = routed_agent_name
             agent_flow.append({"agent": primary_agent_name, "role": "primary", "timestamp": str(datetime.now())})
             
+            print(f"DEBUG: Using specialized agent: {primary_agent_name}")
+            
             # Create enhanced context for the specialized agent
             specialized_system_message = create_enhanced_system_message(primary_agent_name, req, latest_message)
             specialized_messages = [specialized_system_message] + cleaned_messages
@@ -404,6 +427,8 @@ async def reason(req: ChatRequest):
                 context={"current_rocket_json_str": rocket_json_str},
                 max_turns=30  # Much higher for complex design operations
             )
+            
+            print(f"DEBUG: Primary agent completed")
             
             # Extract actions from the primary agent
             primary_actions = await extract_actions_from_result(primary_result, cleaned_messages[-1]["content"], req.rocket)
@@ -490,6 +515,8 @@ async def reason(req: ChatRequest):
             # Fall back to master agent if router couldn't identify a specialized agent
             agent_flow.append({"agent": "master", "role": "primary", "timestamp": str(datetime.now())})
             
+            print("DEBUG: Using master agent as fallback")
+            
             # Create enhanced context for master agent
             master_system_message = create_enhanced_system_message("master", req, latest_message)
             master_messages = [master_system_message] + cleaned_messages
@@ -508,6 +535,8 @@ async def reason(req: ChatRequest):
         
         # Ensure we have a primary result
         result = primary_result
+        
+        print(f"DEBUG: Processing final result, actions count: {len(all_actions)}")
         
         # Create an enhanced user-facing response that combines the outputs
         enhanced_response = ""

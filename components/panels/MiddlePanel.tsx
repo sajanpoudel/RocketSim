@@ -12,6 +12,7 @@ import {
 import * as THREE from 'three'
 import { motion } from 'framer-motion'
 import { useRocket } from '@/lib/store'
+import { Part } from '@/types/rocket'
 
 // Flame component for rocket engine
 function RocketFlame({ isLaunched, throttle = 0, preLaunchFire = false, countdownStage = 0 }: { 
@@ -138,22 +139,98 @@ function RocketModel({
   const rocket = useRocket(state => state.rocket)
   const { parts } = rocket
   
-  // Force re-render when rocket parts change
+  // Force re-render when rocket parts change - enhanced detection
   const [renderKey, setRenderKey] = useState(0)
   const prevPartsRef = useRef(parts)
+  const partsHashRef = useRef('')
+  
+  // Create a comprehensive hash of all part properties
+  const createPartsHash = useCallback((parts: Part[]) => {
+    return parts.map(p => {
+      const baseKey = `${p.type}-${p.id}-${p.color}`;
+      if (p.type === 'fin') {
+        const finPart = p as any;
+        return `${baseKey}-root:${finPart.root || 0}-span:${finPart.span || 0}-sweep:${finPart.sweep || 0}`;
+      } else if (p.type === 'body') {
+        const bodyPart = p as any;
+        return `${baseKey}-Ø:${bodyPart.Ø || 0}-length:${bodyPart.length || 0}`;
+      } else if (p.type === 'nose') {
+        const nosePart = p as any;
+        return `${baseKey}-shape:${nosePart.shape || 'ogive'}-length:${nosePart.length || 0}-baseØ:${nosePart.baseØ || 0}`;
+      } else if (p.type === 'engine') {
+        const enginePart = p as any;
+        return `${baseKey}-thrust:${enginePart.thrust || 0}-Isp:${enginePart.Isp || 0}`;
+      }
+      return baseKey;
+    }).join('|');
+  }, []);
   
   useEffect(() => {
-    const currentPartsStr = JSON.stringify(parts)
-    const prevPartsStr = JSON.stringify(prevPartsRef.current)
+    const currentPartsHash = createPartsHash(parts);
+    const prevPartsHash = partsHashRef.current;
     
-    if (currentPartsStr !== prevPartsStr) {
-      console.log('🔄 Parts changed, forcing re-render')
-      console.log('Previous parts:', prevPartsRef.current)
-      console.log('Current parts:', parts)
-      setRenderKey(prev => prev + 1)
-      prevPartsRef.current = parts
+    console.log('🔍 RocketModel: Checking for parts changes');
+    console.log('📊 Current parts hash:', currentPartsHash);
+    console.log('📋 Previous parts hash:', prevPartsHash);
+    console.log('🔄 Parts changed:', currentPartsHash !== prevPartsHash);
+    console.log('📦 Current parts count:', parts.length);
+    console.log('📦 Previous parts count:', prevPartsRef.current.length);
+    
+    if (currentPartsHash !== prevPartsHash) {
+      console.log('🚀 PARTS CHANGED - Forcing complete re-render!');
+      console.log('🆚 Detailed comparison:');
+      console.log('   Previous parts:', JSON.stringify(prevPartsRef.current, null, 2));
+      console.log('   Current parts:', JSON.stringify(parts, null, 2));
+      
+      setRenderKey(prev => {
+        const newKey = prev + 1;
+        console.log(`🔑 Render key updated: ${prev} → ${newKey}`);
+        return newKey;
+      });
+      
+      prevPartsRef.current = structuredClone(parts);
+      partsHashRef.current = currentPartsHash;
+      
+      // Force a more aggressive re-render by changing the rocket's position slightly
+      if (rocketRef.current) {
+        const originalPosition = rocketRef.current.position.clone();
+        rocketRef.current.position.y += 0.001;
+        setTimeout(() => {
+          if (rocketRef.current) {
+            rocketRef.current.position.copy(originalPosition);
+          }
+        }, 1);
+      }
     }
-  }, [parts])
+  }, [parts, createPartsHash]);
+  
+  // Also trigger re-render when individual part properties change
+  const [partChangeKey, setPartChangeKey] = useState(0);
+  useEffect(() => {
+    // Watch for changes in specific part properties that affect rendering
+    const bodyPart = parts.find(part => part.type === 'body') as any;
+    const finParts = parts.filter(part => part.type === 'fin') as any[];
+    const nosePart = parts.find(part => part.type === 'nose') as any;
+    
+    const criticalValues = {
+      bodyDiameter: bodyPart?.Ø || 0,
+      bodyLength: bodyPart?.length || 0,
+      finRoot: finParts[0]?.root || 0,
+      finSpan: finParts[0]?.span || 0,
+      noseLength: nosePart?.length || 0,
+      partCount: parts.length
+    };
+    
+    const criticalHash = JSON.stringify(criticalValues);
+    const prevCriticalHash = localStorage.getItem('rocketCriticalHash') || '';
+    
+    if (criticalHash !== prevCriticalHash) {
+      console.log('🎯 Critical part properties changed, forcing re-render');
+      console.log('⚙️ Critical values:', criticalValues);
+      setPartChangeKey(prev => prev + 1);
+      localStorage.setItem('rocketCriticalHash', criticalHash);
+    }
+  }, [parts]);
   
   // Find parts by type
   const nosePart = parts.find(part => part.type === 'nose')
@@ -184,14 +261,14 @@ function RocketModel({
   console.log("🔧 RocketModel: fin raw values - root:", finParts[0]?.root, "span:", finParts[0]?.span);
 
   // Force Three.js to recognize the dimension change with a unique string
-  const dimensionKey = `dims-radius${bodyRadius.toFixed(4)}-finRoot${finRootScaled.toFixed(4)}-finSpan${finSpanScaled.toFixed(4)}`;
-  const finDimensionKey = `fin-root${finRootScaled.toFixed(4)}-span${finSpanScaled.toFixed(4)}`;
+  const dimensionKey = `dims-radius${bodyRadius.toFixed(4)}-finRoot${finRootScaled.toFixed(4)}-finSpan${finSpanScaled.toFixed(4)}-renderKey${renderKey}-partKey${partChangeKey}`;
+  const finDimensionKey = `fin-root${finRootScaled.toFixed(4)}-span${finSpanScaled.toFixed(4)}-renderKey${renderKey}`;
   console.log("RocketModel: dimensionKey for recreating geometries:", dimensionKey);
   console.log("RocketModel: finDimensionKey for fin geometries:", finDimensionKey);
   
-  // Additional render key that includes fin dimensions for aggressive re-rendering
-  const finDimensionRenderKey = `${renderKey}-fin-${finRootScaled.toFixed(3)}-${finSpanScaled.toFixed(3)}`
-  console.log("🔧 RocketModel: finDimensionRenderKey:", finDimensionRenderKey);
+  // Enhanced render key that includes everything
+  const comprehensiveRenderKey = `${renderKey}-${partChangeKey}-parts${parts.length}-fin-${finRootScaled.toFixed(3)}-${finSpanScaled.toFixed(3)}-body-${bodyRadius.toFixed(3)}-${bodyLengthScaled.toFixed(3)}`;
+  console.log("🔧 RocketModel: comprehensiveRenderKey:", comprehensiveRenderKey);
   
   // Proportional lengths for body segments based on original hardcoded ratio (1.6 upper, 2.4 lower => 40% upper, 60% lower)
   const upperBodyActualLength = bodyLengthScaled * 0.4;
@@ -393,7 +470,7 @@ function RocketModel({
   return (
     <group 
       ref={rocketRef} 
-      key={`rocket-${finDimensionRenderKey}`}
+      key={`rocket-${comprehensiveRenderKey}`}
       position={[0, 0.8, 0]}
     >
       {/* Upper body */}
@@ -1444,6 +1521,10 @@ export default function MiddlePanel({ isMobile = false, isSmallDesktop = false, 
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
   
+  // FORCE RE-RENDER MECHANISM - Add state to force component re-render
+  const [forceRenderKey, setForceRenderKey] = useState(0);
+  const [lastRocketHash, setLastRocketHash] = useState('');
+  
   // Add resize observer to detect container size changes
   useEffect(() => {
     if (!containerRef.current) return;
@@ -1472,6 +1553,41 @@ export default function MiddlePanel({ isMobile = false, isSmallDesktop = false, 
   // Get rocket from store for key generation
   const rocket = useRocket(state => state.rocket);
   
+  // FORCE RE-RENDER: Monitor rocket state changes aggressively
+  useEffect(() => {
+    const currentRocketHash = JSON.stringify(rocket);
+    if (currentRocketHash !== lastRocketHash && lastRocketHash !== '') {
+      console.log('🔄 MiddlePanel: Rocket state changed, forcing re-render!');
+      console.log('📊 Previous hash length:', lastRocketHash.length);
+      console.log('📊 Current hash length:', currentRocketHash.length);
+      console.log('📦 Parts count changed:', rocket.parts.length);
+      
+      setForceRenderKey(prev => {
+        const newKey = prev + 1;
+        console.log(`🔑 MiddlePanel: Force render key updated: ${prev} → ${newKey}`);
+        return newKey;
+      });
+    }
+    setLastRocketHash(currentRocketHash);
+  }, [rocket, lastRocketHash]);
+  
+  // FORCE RE-RENDER: Listen for action dispatcher events
+  useEffect(() => {
+    const handleActionDispatch = (e: CustomEvent) => {
+      console.log('🚀 MiddlePanel: Action dispatch event received, forcing re-render');
+      setForceRenderKey(prev => {
+        const newKey = prev + 1000; // Large increment to distinguish from normal updates
+        console.log(`🔑 MiddlePanel: Action-triggered render key: ${newKey}`);
+        return newKey;
+      });
+    };
+    
+    if (typeof window !== 'undefined') {
+      window.addEventListener('rocketActionsDispatched' as any, handleActionDispatch);
+      return () => window.removeEventListener('rocketActionsDispatched' as any, handleActionDispatch);
+    }
+  }, []);
+  
   // Create a simple hash of parts for key generation
   const partsHash = rocket.parts.map(p => {
     const baseKey = `${p.type}-${p.id}`;
@@ -1484,6 +1600,10 @@ export default function MiddlePanel({ isMobile = false, isSmallDesktop = false, 
     }
     return baseKey;
   }).join('|');
+  
+  // ENHANCED KEY GENERATION with force render key
+  const finalRenderKey = `${partsHash}-force${forceRenderKey}`;
+  console.log('🔧 MiddlePanel: Final render key:', finalRenderKey);
   
   // Fixed ground position that places rocket on top of grid
   const GROUND_Y = -2.8; // Updated to match the grid position
@@ -1747,9 +1867,9 @@ export default function MiddlePanel({ isMobile = false, isSmallDesktop = false, 
             position={[0, GROUND_Y, 0]}
           />
           <Suspense fallback={null}>
-            {/* Force re-creation of RocketSimulation when launch state changes */}
+            {/* FORCE RE-RENDER: Use finalRenderKey to force re-creation when actions are dispatched */}
             <RocketSimulation 
-              key={`rocket-${isLaunched ? 'launched' : 'idle'}-${resetTrigger ? 'reset' : 'normal'}-${partsHash}`}
+              key={`rocket-${isLaunched ? 'launched' : 'idle'}-${resetTrigger ? 'reset' : 'normal'}-${finalRenderKey}`}
               selected={selectedPart !== null} 
               isLaunched={isLaunched} 
               throttle={throttle}

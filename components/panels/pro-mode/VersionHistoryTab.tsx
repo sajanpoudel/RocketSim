@@ -140,7 +140,20 @@ export default function VersionHistoryTab() {
                         {formatTimeAgo(version.created_at)}
                       </span>
                       <span>{version.motor_id}</span>
-                      <span>{JSON.parse(version.parts).length} parts</span>
+                      <span>
+                        {(() => {
+                          try {
+                            // Handle both string and already-parsed object cases
+                            const parts = typeof version.parts === 'string' 
+                              ? JSON.parse(version.parts) 
+                              : version.parts;
+                            return Array.isArray(parts) ? parts.length : 0;
+                          } catch (error) {
+                            console.warn('Failed to parse version parts:', error);
+                            return 0;
+                          }
+                        })()} parts
+                      </span>
                     </div>
                   </div>
                   

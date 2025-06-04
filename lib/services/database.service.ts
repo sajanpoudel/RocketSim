@@ -254,9 +254,93 @@ export class DatabaseService {
         return null;
       }
 
+      // Handle session_id validation to prevent foreign key constraint violations
+      let validatedSessionId: string | null = null;
+      
+      if (sessionId) {
+        // Check if this session exists in the database
+        const { data: existingSession, error: sessionCheckError } = await supabase
+          .from('user_sessions')
+          .select('session_id')
+          .eq('session_id', sessionId)
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+        if (existingSession && !sessionCheckError) {
+          // Session exists in database, safe to use
+          validatedSessionId = sessionId;
+          console.log('✅ Session exists in database, linking chat message to session:', sessionId);
+        } else {
+          // Session doesn't exist in database yet, create it
+          console.log('⚠️ Session not found in database, creating new session. Session ID:', sessionId);
+          
+          try {
+            const newSessionData = {
+              user_id: user.id,
+              session_id: sessionId,
+              started_at: new Date().toISOString(),
+              last_activity: new Date().toISOString(),
+              metadata: {},
+              rocket_count: 0,
+              simulation_count: 0
+            };
+
+            const { data: newSession, error: createError } = await supabase
+              .from('user_sessions')
+              .insert(newSessionData)
+              .select('session_id')
+              .single();
+
+            if (newSession && !createError) {
+              validatedSessionId = sessionId;
+              console.log('✅ Created new session in database:', sessionId);
+            } else {
+              console.error('❌ Failed to create session:', createError);
+              validatedSessionId = null;
+            }
+          } catch (createError) {
+            console.error('❌ Exception creating session:', createError);
+            validatedSessionId = null;
+          }
+        }
+      }
+
+      // If we couldn't validate or create a session, skip saving
+      if (!validatedSessionId) {
+        console.log('⚠️ No valid session available, skipping chat message save');
+        return null;
+      }
+
+      // Handle rocket_id validation to prevent foreign key constraint violations
+      let validatedRocketId: string | null = null;
+      
+      if (rocketId) {
+        // Check if this rocket exists in the database
+        const { data: existingRocket, error: rocketCheckError } = await supabase
+          .from('rockets')
+          .select('id')
+          .eq('id', rocketId)
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+        if (existingRocket && !rocketCheckError) {
+          // Rocket exists in database, safe to use
+          validatedRocketId = rocketId;
+          console.log('✅ Rocket exists in database, linking chat message to rocket:', rocketId);
+        } else {
+          // Rocket doesn't exist in database yet
+          console.log('⚠️ Rocket not found in database, saving chat message without rocket link. Rocket ID:', rocketId);
+          console.log('   This is normal for new/unsaved rocket designs.');
+          validatedRocketId = null;
+          
+          // Optional: We could auto-save the rocket here, but that might be too aggressive
+          // For now, we'll just save the message without the rocket link
+        }
+      }
+
       const messageData: Omit<NewChatMessage, 'user_id'> = {
-        session_id: sessionId, // This should now be a proper session_id (VARCHAR)
-        rocket_id: rocketId || null,
+        session_id: validatedSessionId, // Use validated session_id
+        rocket_id: validatedRocketId, // Use validated rocket_id or null
         role,
         content,
         agent_actions: agentActions || null
@@ -333,7 +417,7 @@ export class DatabaseService {
         .gte('last_activity', twentyFourHoursAgo)
         .order('last_activity', { ascending: false })
         .limit(1)
-        .single();
+        .maybeSingle();
 
       if (existingSession) {
         // Update last activity
@@ -727,30 +811,110 @@ export class DatabaseService {
     description?: string, 
     createdByAction?: string
   ): Promise<any | null> {
+    // Add retry logic to handle race conditions
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const user = await getCurrentUser();
+        if (!user) return null;
+
+        // Validate rocket ID and ensure it exists in database
+        if (!rocketId || rocketId.length < 10 || rocketId.includes('local-')) {
+          console.log('Cannot create version for unsaved rocket:', rocketId);
+          return null;
+        }
+
+        // Check if rocket exists in database
+        const { data: existingRocket } = await supabase
+          .from('rockets')
+          .select('id')
+          .eq('id', rocketId)
+          .eq('user_id', user.id)
+          .single();
+
+        if (!existingRocket) {
+          console.log('Rocket not found in database, cannot create version:', rocketId);
+          return null;
+        }
+
+        // Start a transaction to avoid race conditions
+        const { data, error } = await supabase.rpc('create_rocket_version', {
+          p_rocket_id: rocketId,
+          p_user_id: user.id,
+          p_rocket_name: rocket.name,
+          p_description: description || 'Version created',
+          p_parts: toJson(rocket.parts),
+          p_motor_id: rocket.motorId,
+          p_drag_coefficient: rocket.Cd,
+          p_units: rocket.units,
+          p_created_by_action: createdByAction
+        });
+
+        if (error) {
+          // Check if RPC function doesn't exist yet (fallback to old method)
+          if (error.code === '42883') {
+            console.log('RPC function not found, using fallback method...');
+            return this.saveRocketVersionFallback(rocketId, rocket, description, createdByAction, user.id);
+          }
+          
+          // Check if it's a unique constraint violation
+          if (error.code === '23505' && attempt < 2) {
+            console.log(`Version conflict on attempt ${attempt + 1}, retrying...`);
+            // Wait a bit before retrying
+            await new Promise(resolve => setTimeout(resolve, 100 * (attempt + 1)));
+            continue;
+          }
+          
+          console.error('Error saving rocket version:', error);
+          return null;
+        }
+
+        // Update the main rocket record with latest version
+        await supabase
+          .from('rockets')
+          .update({
+            name: rocket.name,
+            parts: toJson(rocket.parts),
+            motor_id: rocket.motorId,
+            drag_coefficient: rocket.Cd,
+            units: rocket.units,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', rocketId);
+
+        console.log(`Created version ${data?.version_number} for rocket ${rocketId}`);
+        return data;
+        
+      } catch (error) {
+        console.error('Failed to save rocket version (attempt', attempt + 1, '):', error);
+        if (attempt === 2) {
+          // Final attempt failed
+          return null;
+        }
+        // Wait before retrying
+        await new Promise(resolve => setTimeout(resolve, 200 * (attempt + 1)));
+      }
+    }
+    
+    return null; // All attempts failed
+  }
+
+  /**
+   * Fallback method for creating rocket versions (when RPC function doesn't exist)
+   */
+  private async saveRocketVersionFallback(
+    rocketId: string,
+    rocket: Rocket,
+    description?: string,
+    createdByAction?: string,
+    userId?: string
+  ): Promise<any | null> {
     try {
-      const user = await getCurrentUser();
-      if (!user) return null;
+      const user_id = userId || (await getCurrentUser())?.id;
+      if (!user_id) return null;
 
-      // Validate rocket ID and ensure it exists in database
-      if (!rocketId || rocketId.length < 10 || rocketId.includes('local-')) {
-        console.log('Cannot create version for unsaved rocket:', rocketId);
-        return null;
-      }
-
-      // Check if rocket exists in database
-      const { data: existingRocket } = await supabase
-        .from('rockets')
-        .select('id')
-        .eq('id', rocketId)
-        .eq('user_id', user.id)
-        .single();
-
-      if (!existingRocket) {
-        console.log('Rocket not found in database, cannot create version:', rocketId);
-        return null;
-      }
-
-      // Get the current highest version number
+      // Get the current highest version number with a small delay to reduce race conditions
+      await new Promise(resolve => setTimeout(resolve, Math.random() * 100));
+      
       const { data: versions } = await supabase
         .from('rocket_versions')
         .select('version_number')
@@ -778,7 +942,7 @@ export class DatabaseService {
         units: rocket.units,
         created_by_action: createdByAction,
         is_current: true,
-        user_id: user.id
+        user_id: user_id
       };
 
       const { data, error } = await supabase
@@ -788,27 +952,14 @@ export class DatabaseService {
         .single();
 
       if (error) {
-        console.error('Error saving rocket version:', error);
+        console.error('Error in fallback rocket version save:', error);
         return null;
       }
 
-      // Update the main rocket record with latest version
-      await supabase
-        .from('rockets')
-        .update({
-          name: rocket.name,
-          parts: toJson(rocket.parts),
-          motor_id: rocket.motorId,
-          drag_coefficient: rocket.Cd,
-          units: rocket.units,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', rocketId);
-
-      console.log(`Created version ${nextVersion} for rocket ${rocketId}`);
+      console.log(`Created version ${nextVersion} for rocket ${rocketId} (fallback method)`);
       return data;
     } catch (error) {
-      console.error('Failed to save rocket version:', error);
+      console.error('Fallback version save failed:', error);
       return null;
     }
   }
