@@ -1,9 +1,16 @@
 -- Migration: Add vector columns for AI embeddings
 -- This enables similarity search for chat messages and rocket designs
 
--- Add message_vector column to chat_messages table
-ALTER TABLE chat_messages 
-ADD COLUMN message_vector vector(1536);
+-- Add message_vector column to chat_messages table (if not exists)
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'chat_messages' AND column_name = 'message_vector'
+    ) THEN
+        ALTER TABLE chat_messages ADD COLUMN message_vector vector(1536);
+    END IF;
+END $$;
 
 -- Add design_vector column to rockets table (if not already exists)
 DO $$ 

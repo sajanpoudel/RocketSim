@@ -59,10 +59,6 @@ BEGIN
         IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector') THEN
             ALTER TABLE chat_messages ADD COLUMN message_vector vector(1536);
             COMMENT ON COLUMN chat_messages.message_vector IS 'Vector embedding for semantic search (1536 dimensions)';
-            
-            -- Create index for similarity search
-            CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_chat_messages_vector 
-            ON chat_messages USING ivfflat (message_vector vector_cosine_ops);
         ELSE
             -- If vector extension is not available, use array of floats as fallback
             ALTER TABLE chat_messages ADD COLUMN message_vector FLOAT[];
@@ -93,6 +89,11 @@ BEGIN
     END IF;
 
 END $$;
+
+-- Create index for message vector outside of the DO block
+CREATE INDEX IF NOT EXISTS idx_chat_messages_vector
+ON chat_messages USING ivfflat (message_vector vector_cosine_ops)
+WHERE message_vector IS NOT NULL;
 
 -- Update table comments
 COMMENT ON TABLE simulations IS 'Rocket flight simulation results and metadata';

@@ -98,11 +98,53 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
   }, []);
 
-  // Initialize user session - using only user_sessions table
+  // Ensure user exists in public.users table
+  const ensureUserRecord = async (user: User) => {
+    try {
+      // Check if user exists in public.users table
+      const { data: existingUser, error: checkError } = await supabase
+        .from('users')
+        .select('id')
+        .eq('id', user.id)
+        .maybeSingle();
+
+      if (checkError && checkError.code !== 'PGRST116') {
+        console.warn('Error checking user existence:', checkError);
+        return;
+      }
+
+      if (!existingUser) {
+        // Create user record in public.users table
+        const { error: insertError } = await supabase
+          .from('users')
+          .insert({
+            id: user.id,
+            email: user.email || '',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            preferences: {},
+            experience_level: 'beginner',
+            subscription_tier: 'free'
+          });
+
+        if (insertError) {
+          console.warn('Could not create user record (may already exist):', insertError);
+        } else {
+          console.log('✅ Created user record in public.users table');
+        }
+      }
+    } catch (error) {
+      console.warn('Error ensuring user record:', error);
+    }
+  };
+
+  // Initialize user session - now with better error handling
   const initializeUserSession = async (user: User) => {
     try {
+      // First ensure user exists in public.users table
+      await ensureUserRecord(user);
+      
       // Create a new session record for tracking user activity
-      // We don't need a custom users table - Supabase auth.users is sufficient
       const sessionId = crypto.randomUUID(); // Use proper UUID format
       
       // Add timeout for session creation to prevent hanging
@@ -133,6 +175,45 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       if (sessionError) {
         console.warn('Could not create session record:', sessionError);
+        
+        // Check if it's a foreign key constraint error specifically
+        if (sessionError.code === '23503') {
+          console.error('Foreign key constraint violation - user may not exist in database');
+          console.log('Attempting to resolve user synchronization issue...');
+          
+          // Try to sync the user again and retry session creation
+          await ensureUserRecord(user);
+          
+          // Retry session creation once more
+          try {
+            const { data: retrySession, error: retryError } = await supabase
+              .from('user_sessions')
+              .insert({
+                user_id: user.id,
+                session_id: crypto.randomUUID(),
+                metadata: {
+                  userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'server',
+                  timestamp: new Date().toISOString(),
+                  email: user.email
+                },
+                started_at: new Date().toISOString(),
+                last_activity: new Date().toISOString()
+              })
+              .select()
+              .single();
+
+            if (retryError) {
+              throw retryError;
+            }
+            
+            setUserSession(retrySession);
+            console.log('✅ Successfully created session after user sync');
+            return;
+          } catch (retryError) {
+            console.error('Retry session creation also failed:', retryError);
+          }
+        }
+        
         // Create a fallback session object with proper UUID
         const fallbackSessionId = crypto.randomUUID();
         setUserSession({
@@ -145,6 +226,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
 
       setUserSession(session);
+      console.log('✅ Successfully created user session');
     } catch (error) {
       console.warn('Error initializing user session:', error);
       // Fallback to a basic session object with proper UUID
