@@ -7,7 +7,8 @@ import {
   MonteCarloResult,
   StabilityAnalysis,
   MotorAnalysis,
-  RecoveryPrediction
+  RecoveryPrediction,
+  Project
 } from '@/types/rocket';
 import { 
   databaseService, 
@@ -25,7 +26,16 @@ import {
   revertToRocketVersion,
   loadRocketById,
   getRocketForSession,
-  cleanupOrphanedSessions
+  cleanupOrphanedSessions,
+  // Project functions
+  createProject,
+  getUserProjects,
+  updateProject,
+  deleteProject,
+  getProjectRockets,
+  getLatestProjectRocket,
+  getChatHistoryByProject,
+  updateRocket
 } from '@/lib/services/database.service';
 import { getDefaultRocket } from '@/lib/data/templates';
 
@@ -78,6 +88,10 @@ export interface RocketState {
   isSaving: boolean;
   initializationAttempted: boolean;
   
+  // Project state (new)
+  currentProject: Project | null;
+  savedProjects: Project[];
+  
   // Left panel state
   userSimulations: any[];
   userChatSessions: any[];
@@ -87,6 +101,14 @@ export interface RocketState {
   // Version control state
   rocketVersions: any[];
   isLoadingVersions: boolean;
+  
+  // Project-related state
+  projectPagination: {
+    currentPage: number
+    totalCount: number
+    hasMore: boolean
+    isLoadingMore: boolean
+  }
   
   // Actions
   updateRocket: (fn: (rocket: Rocket) => Rocket, skipAutoSave?: boolean) => void;
@@ -107,6 +129,12 @@ export interface RocketState {
   loadUserRockets: () => Promise<void>;
   initializeDatabase: () => Promise<void>;
   saveChatMessage: (role: 'user' | 'assistant' | 'system', content: string, actions?: any) => Promise<void>;
+  
+  // Project actions (new)
+  loadProject: (projectId: string) => Promise<void>;
+  createAndLoadNewProject: (name: string, template?: 'basic' | 'advanced' | 'sport') => Promise<void>;
+  loadUserProjects: () => Promise<void>;
+  loadMoreProjects: () => Promise<void>;
   
   // Left panel actions
   loadRocket: (rocket: Rocket) => void;
@@ -155,6 +183,10 @@ export const useRocket = create<RocketState>()((set, get) => ({
   isSaving: false,
   initializationAttempted: false,
   
+  // Project state (new)
+  currentProject: null,
+  savedProjects: [],
+  
   // Left panel state
   userSimulations: [],
   userChatSessions: [],
@@ -164,6 +196,14 @@ export const useRocket = create<RocketState>()((set, get) => ({
   // Version control state
   rocketVersions: [],
   isLoadingVersions: false,
+  
+  // Project-related state
+  projectPagination: {
+    currentPage: 1,
+    totalCount: 0,
+    hasMore: true,
+    isLoadingMore: false
+  },
   
   // Core actions
   updateRocket: (fn, skipAutoSave) => {
@@ -288,9 +328,11 @@ export const useRocket = create<RocketState>()((set, get) => ({
   initializeDatabase: async () => {
     const state = get();
     if (state.initializationAttempted) {
+      console.log('🔍 initializeDatabase: Already attempted, skipping...');
       return; // Prevent multiple initialization attempts
     }
     
+    console.log('🔍 initializeDatabase: Starting database initialization...');
     set({ initializationAttempted: true });
     
     try {
@@ -300,15 +342,21 @@ export const useRocket = create<RocketState>()((set, get) => ({
       );
       
       const initPromise = (async () => {
+        console.log('🔍 initializeDatabase: Testing database connection...');
         // Test database connection
         const isConnected = await databaseService.testConnection();
+        console.log('🔍 initializeDatabase: Connection result:', isConnected);
         
         if (isConnected) {
+          console.log('🔍 initializeDatabase: Getting session ID...');
           // Get or create session
           const sessionId = await getCurrentSessionId();
+          console.log('🔍 initializeDatabase: Session ID:', sessionId);
           
+          console.log('🔍 initializeDatabase: Loading user rockets...');
           // Load user rockets
           const rockets = await databaseService.loadUserRockets();
+          console.log('🔍 initializeDatabase: Loaded rockets:', rockets.length);
           
           set({ 
             isDatabaseConnected: true, 
@@ -316,9 +364,9 @@ export const useRocket = create<RocketState>()((set, get) => ({
             savedRockets: rockets
           });
           
-          console.log('Database initialized successfully');
+          console.log('✅ initializeDatabase: Database initialized successfully');
         } else {
-          console.warn('Database connection failed - running in offline mode');
+          console.warn('⚠️ initializeDatabase: Database connection failed - running in offline mode');
           set({ isDatabaseConnected: false });
         }
       })();
@@ -326,7 +374,7 @@ export const useRocket = create<RocketState>()((set, get) => ({
       await Promise.race([initPromise, timeoutPromise]);
       
     } catch (error) {
-      console.warn('Database initialization failed:', error);
+      console.warn('❌ initializeDatabase: Database initialization failed:', error);
       set({ isDatabaseConnected: false });
     }
   },
@@ -338,21 +386,35 @@ export const useRocket = create<RocketState>()((set, get) => ({
     }
     
     try {
-      // FIRST: Ensure we have a valid session
-      let sessionId = state.currentSessionId;
-      if (!sessionId) {
-        sessionId = await getCurrentSessionId();
-        set({ currentSessionId: sessionId });
+      // For the new project-based chat system, we need a project ID
+      // If we have a current project, use that, otherwise try to get/create one
+      let projectId = state.currentProject?.id;
+      
+      if (!projectId && state.rocket.project_id) {
+        projectId = state.rocket.project_id;
       }
       
-      // THEN: Save chat message
-      await saveChatToDb(
-        sessionId,
-        role,
-        content,
-        state.rocket.id,
-        actions
-      );
+      if (!projectId) {
+        // Create a project for this rocket if none exists
+        const newProject = await createProject(state.rocket.name);
+        if (newProject) {
+          projectId = newProject.id;
+          // Database now returns proper Project type
+          set({ currentProject: newProject as Project });
+        }
+      }
+      
+      if (projectId) {
+        // Use new project-based chat saving
+        await saveChatToDb(
+          [{ role, content, agent: actions?.agent }],
+          projectId,
+          state.rocket.id
+        );
+      } else {
+        // Fallback to old method if no project (should not happen in practice)
+        console.warn('No project ID available for chat message, skipping save');
+      }
     } catch (error) {
       console.warn('Failed to save chat message:', error);
     }
@@ -543,7 +605,159 @@ export const useRocket = create<RocketState>()((set, get) => ({
   
   clearRocketVersions: () => {
     set({ rocketVersions: [] });
-  }
+  },
+
+  // Project actions (new implementations)
+  loadProject: async (projectId: string) => {
+    const state = get();
+    if (!state.isDatabaseConnected) return;
+    
+    try {
+      // Check if project is already in savedProjects
+      let project = state.savedProjects.find(p => p.id === projectId);
+      
+      if (!project) {
+        // Project not in current list, load it specifically
+        // For now, we'll load all projects to find this one
+        // TODO: Implement a getProjectById function for better performance
+        const result = await getUserProjects(100, 0); // Load more to find the project
+        const dbProject = result.projects.find((p: any) => p.id === projectId);
+        if (dbProject) {
+          project = dbProject as Project;
+        }
+      }
+      
+      if (project) {
+        set({ currentProject: project });
+        
+        // Load latest rocket from this project
+        const latestRocket = await getLatestProjectRocket(projectId);
+        if (latestRocket) {
+          // Use loadRocketById to get the properly converted rocket
+          const rocket = await loadRocketById(latestRocket.id);
+          if (rocket) {
+            set({ rocket });
+          }
+        }
+        
+        console.log('Loaded project:', project.name);
+      }
+    } catch (error) {
+      console.error('Failed to load project:', error);
+    }
+  },
+
+  createAndLoadNewProject: async (name: string, template = 'basic') => {
+    try {
+      // Create new project
+      const newProject = await createProject(name, `New rocket project: ${name}`);
+      if (!newProject) throw new Error('Failed to create project');
+      
+      // Create new rocket for this project
+      const newRocket = await createNewRocket(name, template);
+      if (!newRocket) throw new Error('Failed to create rocket');
+      
+      // Set project ID on rocket
+      newRocket.project_id = newProject.id;
+      
+      // Save rocket to database with project ID
+      const savedRocket = await saveRocketToDb(newRocket, newProject.id);
+      
+      if (savedRocket) {
+        set({ 
+          currentProject: newProject as Project,
+          rocket: newRocket
+        });
+        
+        // Refresh project list
+        get().loadUserProjects();
+        
+        console.log('Created new project and rocket:', name);
+      }
+    } catch (error) {
+      console.error('Failed to create new project:', error);
+    }
+  },
+
+  loadUserProjects: async () => {
+    console.log('🔍 loadUserProjects: Starting to load user projects...');
+    try {
+      const result = await getUserProjects(20, 0); // Load first 20 projects
+      console.log('🔍 loadUserProjects: Raw result from database:', result);
+      console.log('🔍 loadUserProjects: Projects count:', result.projects.length);
+      console.log('🔍 loadUserProjects: Total count:', result.totalCount);
+      
+      // Database now returns proper Project types, no conversion needed
+      const projects = result.projects as Project[];
+      console.log('🔍 loadUserProjects: Projects:', projects);
+      
+      set({ 
+        savedProjects: projects,
+        projectPagination: {
+          currentPage: 1,
+          totalCount: result.totalCount,
+          hasMore: result.projects.length < result.totalCount,
+          isLoadingMore: false
+        }
+      });
+      console.log('🔍 loadUserProjects: Successfully set projects in store');
+    } catch (error) {
+      console.error('❌ loadUserProjects: Failed to load user projects:', error);
+      set({ 
+        savedProjects: [],
+        projectPagination: {
+          currentPage: 1,
+          totalCount: 0,
+          hasMore: false,
+          isLoadingMore: false
+        }
+      });
+    }
+  },
+
+  loadMoreProjects: async () => {
+    const state = get();
+    if (!state.projectPagination.hasMore || state.projectPagination.isLoadingMore) {
+      return;
+    }
+
+    console.log('🔍 loadMoreProjects: Loading more projects...');
+    set({ 
+      projectPagination: { 
+        ...state.projectPagination, 
+        isLoadingMore: true 
+      } 
+    });
+
+    try {
+      const offset = state.savedProjects.length;
+      const result = await getUserProjects(20, offset);
+      console.log('🔍 loadMoreProjects: Loaded additional projects:', result.projects.length);
+      
+      // Database now returns proper Project types, no conversion needed
+      const newProjects = result.projects as Project[];
+      const allProjects = [...state.savedProjects, ...newProjects];
+      
+      set({ 
+        savedProjects: allProjects,
+        projectPagination: {
+          currentPage: state.projectPagination.currentPage + 1,
+          totalCount: result.totalCount,
+          hasMore: allProjects.length < result.totalCount,
+          isLoadingMore: false
+        }
+      });
+      console.log('🔍 loadMoreProjects: Successfully loaded more projects. Total:', allProjects.length);
+    } catch (error) {
+      console.error('❌ loadMoreProjects: Failed to load more projects:', error);
+      set({ 
+        projectPagination: { 
+          ...state.projectPagination, 
+          isLoadingMore: false 
+        } 
+      });
+    }
+  },
 }));
 
 // Initialize database connection when store is created (with better error handling)

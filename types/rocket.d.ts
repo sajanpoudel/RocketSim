@@ -90,9 +90,28 @@ export interface ParachuteComponent {
   color?: string;                     // Optional color for rendering
 }
 
+/** Project interface - top-level container for rocket designs and chat history */
+export interface Project {
+  id: string;
+  name: string;
+  description?: string;
+  created_at: string;
+  updated_at: string;
+  is_public?: boolean;
+  tags?: string[];
+  // Computed fields from database views
+  rocket_count?: number;
+  version_count?: number;
+  message_count?: number;
+  simulation_count?: number;
+  last_rocket_update?: string;
+  last_message_time?: string;
+}
+
 /** Main component-based rocket model */
 export interface Rocket {
   id: string;
+  project_id?: string;  // References the project this rocket belongs to
   name: string;
   nose_cone: NoseComponent;
   body_tubes: BodyComponent[];

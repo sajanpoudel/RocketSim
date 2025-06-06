@@ -12,6 +12,38 @@ export type Json =
 export interface Database {
   public: {
     Tables: {
+      projects: {
+        Row: {
+          id: string
+          user_id: string | null
+          name: string
+          description: string | null
+          created_at: string | null
+          updated_at: string | null
+          is_public: boolean | null
+          tags: string[] | null
+        }
+        Insert: {
+          id?: string
+          user_id?: string | null
+          name: string
+          description?: string | null
+          created_at?: string | null
+          updated_at?: string | null
+          is_public?: boolean | null
+          tags?: string[] | null
+        }
+        Update: {
+          id?: string
+          user_id?: string | null
+          name?: string
+          description?: string | null
+          created_at?: string | null
+          updated_at?: string | null
+          is_public?: boolean | null
+          tags?: string[] | null
+        }
+      }
       users: {
         Row: {
           id: string
@@ -80,6 +112,7 @@ export interface Database {
         Row: {
           id: string
           user_id: string | null
+          project_id: string | null
           name: string
           parts: Json
           motor_id: string | null
@@ -94,6 +127,7 @@ export interface Database {
         Insert: {
           id?: string
           user_id?: string | null
+          project_id?: string | null
           name: string
           parts: Json
           motor_id?: string | null
@@ -108,6 +142,7 @@ export interface Database {
         Update: {
           id?: string
           user_id?: string | null
+          project_id?: string | null
           name?: string
           parts?: Json
           motor_id?: string | null
@@ -191,6 +226,7 @@ export interface Database {
           user_id: string | null
           session_id: string | null
           rocket_id: string | null
+          project_id: string | null
           role: string
           content: string
           context_data: Json | null
@@ -204,6 +240,7 @@ export interface Database {
           user_id?: string | null
           session_id?: string | null
           rocket_id?: string | null
+          project_id?: string | null
           role: string
           content: string
           context_data?: Json | null
@@ -217,6 +254,7 @@ export interface Database {
           user_id?: string | null
           session_id?: string | null
           rocket_id?: string | null
+          project_id?: string | null
           role?: string
           content?: string
           context_data?: Json | null
@@ -430,6 +468,10 @@ export type Inserts<T extends keyof Database['public']['Tables']> = Database['pu
 export type Updates<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Update'];
 
 // Specific type exports
+export type Project = Tables<'projects'>;
+export type NewProject = Inserts<'projects'>;
+export type UpdateProject = Updates<'projects'>;
+
 export type Rocket = Tables<'rockets'>;
 export type NewRocket = Inserts<'rockets'>;
 export type UpdateRocket = Updates<'rockets'>;

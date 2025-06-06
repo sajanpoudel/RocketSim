@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
 import { useRocket } from "@/lib/store"
-import { Rocket } from "@/types/rocket"
+import { Project } from "@/types/rocket"
 import UserProfile from "@/components/ui/UserProfile"
 import { 
   Plus, 
@@ -33,9 +33,14 @@ import {
   MoreVertical,
   Clock,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Folder,
+  FolderOpen,
+  Rocket,
+  MoreHorizontal
 } from "lucide-react"
-import { cleanupOrphanedSessions } from '@/lib/services/database.service'
+import { cleanupOrphanedSessions, deleteProject } from '@/lib/services/database.service'
+import { useAuth } from "@/lib/auth/AuthContext"
 
 interface LeftPanelProps {
   isCollapsed: boolean
@@ -43,19 +48,19 @@ interface LeftPanelProps {
   onProjectClick?: (projectId: string) => void
 }
 
-interface NewRocketDialogProps {
+interface NewProjectDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  onCreateRocket: (name: string, template: 'basic' | 'advanced' | 'sport') => void
+  onCreateProject: (name: string, template: 'basic' | 'advanced' | 'sport') => void
 }
 
-function NewRocketDialog({ open, onOpenChange, onCreateRocket }: NewRocketDialogProps) {
+function NewProjectDialog({ open, onOpenChange, onCreateProject }: NewProjectDialogProps) {
   const [name, setName] = useState("")
   const [template, setTemplate] = useState<'basic' | 'advanced' | 'sport'>('basic')
 
   const handleCreate = () => {
     if (name.trim()) {
-      onCreateRocket(name.trim(), template)
+      onCreateProject(name.trim(), template)
       setName("")
       onOpenChange(false)
     }
@@ -65,17 +70,17 @@ function NewRocketDialog({ open, onOpenChange, onCreateRocket }: NewRocketDialog
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
-          <DialogTitle>Create New Rocket</DialogTitle>
+          <DialogTitle>Create New Project</DialogTitle>
           <DialogDescription>
-            Choose a name and template for your new rocket design.
+            Choose a name and template for your new rocket project.
           </DialogDescription>
         </DialogHeader>
         
         <div className="grid gap-4 py-4">
           <div className="space-y-2">
-            <label className="text-sm font-medium">Rocket Name</label>
+            <label className="text-sm font-medium">Project Name</label>
             <Input
-              placeholder="Enter rocket name..."
+              placeholder="Enter project name..."
               value={name}
               onChange={(e) => setName(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
@@ -110,7 +115,7 @@ function NewRocketDialog({ open, onOpenChange, onCreateRocket }: NewRocketDialog
             Cancel
           </Button>
           <Button onClick={handleCreate} disabled={!name.trim()}>
-            Create Rocket
+            Create Project
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -118,24 +123,27 @@ function NewRocketDialog({ open, onOpenChange, onCreateRocket }: NewRocketDialog
   )
 }
 
-function RocketStatusBadge({ rocket, simulations }: { rocket: Rocket, simulations: any[] }) {
-  const rocketSims = simulations.filter(sim => sim.rocket_id === rocket.id)
-  
-  if (rocketSims.length === 0) {
+function ProjectStatusBadge({ project }: { project: Project }) {
+  const simCount = project.simulation_count || 0;
+  if (simCount === 0) {
     return <Badge variant="secondary" className="text-xs">Draft</Badge>
-  } else if (rocketSims.length >= 3) {
+  } else if (simCount >= 3) {
     return <Badge variant="default" className="text-xs bg-green-600">Tested</Badge>
   } else {
     return <Badge variant="default" className="text-xs bg-blue-600">Active</Badge>
   }
 }
 
-function formatFileSize(bytes: number): string {
-  if (bytes === 0) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
+function getBadgeVariant(simCount: number): "default" | "secondary" | "destructive" | "outline" {
+  if (simCount === 0) return "secondary";
+  if (simCount >= 3) return "default";
+  return "default";
+}
+
+function getProjectStatus(simCount: number): string {
+  if (simCount === 0) return "Draft";
+  if (simCount >= 3) return "Tested";
+  return "Active";
 }
 
 function formatTimeAgo(dateString: string): string {
@@ -152,50 +160,110 @@ function formatTimeAgo(dateString: string): string {
 }
 
 export default function LeftPanel({ isCollapsed, onCollapse, onProjectClick }: LeftPanelProps) {
+  const { user } = useAuth()
   const { 
-    savedRockets, 
-    userSimulations, 
-    userChatSessions, 
-    userStats,
-    isLoadingPanelData,
-    isDatabaseConnected,
-    loadRocket,
-    createAndLoadNewRocket,
-    deleteRocketFromList,
-    loadPanelData,
-    refreshPanelData
+    isDatabaseConnected, 
+    savedProjects, 
+    currentProject,
+    projectPagination,
+    loadUserProjects,
+    loadMoreProjects,
+    loadProject,
+    createAndLoadNewProject
   } = useRocket()
   
-  const [activeSection, setActiveSection] = useState("projects")
-  const [showNewRocketDialog, setShowNewRocketDialog] = useState(false)
+  const [newProjectDialog, setNewProjectDialog] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
 
   // Load panel data when component mounts and database connects
   useEffect(() => {
+    console.log('🔍 LeftPanel useEffect: isDatabaseConnected:', isDatabaseConnected);
+    console.log('🔍 LeftPanel useEffect: savedProjects length:', savedProjects.length);
+    console.log('🔍 LeftPanel useEffect: isLoadingMore:', projectPagination.isLoadingMore);
+    
     if (isDatabaseConnected) {
-      loadPanelData()
+      console.log('🔍 LeftPanel useEffect: Database connected, calling loadUserProjects()');
+      loadUserProjects();
+    } else {
+      console.log('🔍 LeftPanel useEffect: Database not connected, skipping project load');
     }
-  }, [isDatabaseConnected])
+  }, [isDatabaseConnected, loadUserProjects])
 
-  const handleCreateRocket = async (name: string, template: 'basic' | 'advanced' | 'sport') => {
-    await createAndLoadNewRocket(name, template)
-    refreshPanelData() // Refresh to show new rocket in list
+  const handleCreateProject = async (name: string, template: 'basic' | 'advanced' | 'sport') => {
+    await createAndLoadNewProject(name, template)
+    await loadUserProjects() // Refresh to show new project in list
   }
 
-  const handleLoadRocket = (rocket: Rocket) => {
-    // Load the rocket in the 3D view
-    loadRocket(rocket)
+  const handleLoadProject = (project: Project) => {
+    console.log('🚀 Loading project:', project.name, 'ID:', project.id)
+    // Load the project in the store (this will load latest rocket and chat history)
+    loadProject(project.id)
     
     // Notify parent component that a project was clicked so it can load project-specific chat
     if (onProjectClick) {
-      onProjectClick(rocket.id)
+      onProjectClick(project.id)
     }
   }
 
-  const handleDeleteRocket = async (rocketId: string) => {
-    await deleteRocketFromList(rocketId)
-    refreshPanelData()
-  }
+  const handleDeleteProject = async (projectId: string) => {
+    const project = savedProjects.find(p => p.id === projectId);
+    const projectName = project?.name || 'this project';
+    
+    // Show confirmation dialog
+    const confirmed = window.confirm(
+      `Are you sure you want to delete "${projectName}"?\n\n` +
+      `This will permanently delete:\n` +
+      `• All rocket designs in this project\n` +
+      `• All conversation history\n` +
+      `• All simulation data\n` +
+      `• All version history\n\n` +
+      `This action cannot be undone.`
+    );
+    
+    if (!confirmed) return;
+    
+    try {
+      console.log('🗑️ Deleting project:', projectId, projectName);
+      
+      // Check if we're deleting the currently active project
+      const isDeletingCurrentProject = currentProject?.id === projectId;
+      
+      // Delete the project from database
+      const success = await deleteProject(projectId);
+      
+      if (success) {
+        console.log('✅ Project deleted successfully');
+        
+        // If we deleted the current project, clear it from state
+        if (isDeletingCurrentProject) {
+          // Reset to default state - clear current project and create new default rocket
+          await createAndLoadNewProject('Default Rocket', 'basic');
+          useRocket.setState({ currentProject: null }); // Clear current project
+        }
+        
+        // Refresh the projects list
+        await loadUserProjects();
+        
+        // Show success message
+        console.log(`Project "${projectName}" has been deleted.`);
+      } else {
+        throw new Error('Failed to delete project');
+      }
+    } catch (error) {
+      console.error('❌ Error deleting project:', error);
+      
+      // Show error message to user
+      window.alert(
+        `Failed to delete project "${projectName}".\n\n` +
+        `Please try again. If the problem persists, contact support.`
+      );
+    }
+  };
+
+  const refreshPanelData = () => {
+    setIsRefreshing(true);
+    loadUserProjects().finally(() => setIsRefreshing(false));
+  };
 
   const handleCleanupSessions = async () => {
     setIsRefreshing(true);
@@ -203,43 +271,134 @@ export default function LeftPanel({ isCollapsed, onCollapse, onProjectClick }: L
       const cleaned = await cleanupOrphanedSessions();
       if (cleaned) {
         console.log('Orphaned sessions cleaned up');
-        // Show a brief success indicator
-        const button = document.querySelector('[title="Clean up empty sessions"]');
-        if (button) {
-          const originalText = button.textContent;
-          button.textContent = '✅';
-          setTimeout(() => {
-            button.textContent = originalText;
-          }, 2000);
-        }
-        // Refresh the panel data after cleanup
         refreshPanelData();
-      } else {
-        // Show "no cleanup needed" indicator
-        const button = document.querySelector('[title="Clean up empty sessions"]');
-        if (button) {
-          const originalText = button.textContent;
-          button.textContent = '👍';
-          setTimeout(() => {
-            button.textContent = originalText;
-          }, 2000);
-        }
       }
     } catch (error) {
       console.error('Session cleanup failed:', error);
-      // Show error indicator
-      const button = document.querySelector('[title="Clean up empty sessions"]');
-      if (button) {
-        const originalText = button.textContent;
-        button.textContent = '❌';
-        setTimeout(() => {
-          button.textContent = originalText;
-        }, 2000);
-      }
     } finally {
       setIsRefreshing(false);
     }
   };
+
+  // Render the projects list
+  const renderProjects = () => {
+    if (!isDatabaseConnected) {
+      return (
+        <div className="text-center py-8 text-muted-foreground">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-2"></div>
+          <p>Connecting to database...</p>
+        </div>
+      )
+    }
+
+    if (savedProjects.length === 0 && !projectPagination.hasMore) {
+      return (
+        <div className="text-center py-8 text-muted-foreground">
+          <div className="text-4xl mb-2">🚀</div>
+          <p>No projects yet.</p>
+          <p className="text-sm">Create your first rocket project!</p>
+        </div>
+      )
+    }
+
+    return (
+      <div className="space-y-2">
+        {savedProjects.map((project) => (
+          <Card 
+            key={project.id}
+            className={cn(
+              "p-3 cursor-pointer transition-all hover:shadow-md",
+              currentProject?.id === project.id ? "border-blue-500 bg-blue-50/50" : "hover:border-blue-200"
+            )}
+            onClick={() => handleLoadProject(project)}
+          >
+            <div className="flex items-start justify-between">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <h3 className="font-medium text-sm truncate">{project.name}</h3>
+                  <Badge variant={getBadgeVariant(project.simulation_count || 0)} className="text-xs">
+                    {getProjectStatus(project.simulation_count || 0)}
+                  </Badge>
+                </div>
+                
+                {project.description && (
+                  <p className="text-xs text-muted-foreground line-clamp-2 mb-2">
+                    {project.description}
+                  </p>
+                )}
+                
+                <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                  <div className="flex items-center gap-1">
+                    <Rocket className="h-3 w-3" />
+                    <span>{project.rocket_count || 0}</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <MessageSquare className="h-3 w-3" />
+                    <span>{project.message_count || 0}</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span>Updated {formatTimeAgo(project.updated_at)}</span>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Project actions menu */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
+                    <MoreHorizontal className="h-3 w-3" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={(e) => {
+                    e.stopPropagation();
+                    handleLoadProject(project);
+                  }}>
+                    <FileText className="h-3 w-3 mr-2" />
+                    Open Project
+                  </DropdownMenuItem>
+                  <DropdownMenuItem 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteProject(project.id);
+                    }}
+                    className="text-red-600"
+                  >
+                    <Trash2 className="h-3 w-3 mr-2" />
+                    Delete Project
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </Card>
+        ))}
+        
+        {/* Load More Button */}
+        {projectPagination.hasMore && (
+          <div className="pt-2">
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="w-full"
+              onClick={loadMoreProjects}
+              disabled={projectPagination.isLoadingMore}
+            >
+              {projectPagination.isLoadingMore ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500 mr-2"></div>
+                  Loading...
+                </>
+              ) : (
+                <>
+                  Load More ({projectPagination.totalCount - savedProjects.length} remaining)
+                </>
+              )}
+            </Button>
+          </div>
+        )}
+      </div>
+    )
+  }
 
   if (isCollapsed) {
     return (
@@ -250,21 +409,16 @@ export default function LeftPanel({ isCollapsed, onCollapse, onProjectClick }: L
 
         <div className="space-y-3">
           <Button variant="ghost" size="sm" className="p-2 relative">
-            <FileText className="w-5 h-5" />
-            {savedRockets.length > 0 && (
+            <Folder className="w-5 h-5" />
+            {savedProjects.length > 0 && (
               <Badge className="absolute -top-1 -right-1 h-5 w-5 rounded-full p-0 text-xs">
-                {savedRockets.length}
+                {savedProjects.length}
               </Badge>
             )}
           </Button>
 
           <Button variant="ghost" size="sm" className="p-2 relative">
             <BarChart3 className="w-5 h-5" />
-            {userSimulations.length > 0 && (
-              <Badge className="absolute -top-1 -right-1 h-5 w-5 rounded-full p-0 text-xs">
-                {userSimulations.length}
-              </Badge>
-            )}
           </Button>
         </div>
       </div>
@@ -282,15 +436,27 @@ export default function LeftPanel({ isCollapsed, onCollapse, onProjectClick }: L
           </Button>
         </div>
 
-        {/* Navigation - Remove Files tab, only show Projects */}
-        <div className="flex space-x-1 bg-black/20 rounded-lg p-1">
-          <Button
-            variant="default"
-            size="sm"
-            className="flex-1"
+        {/* Navigation */}
+        <div className="flex items-center justify-between">
+          <div className="flex space-x-1 bg-black/20 rounded-lg p-1">
+            <Button
+              variant="default"
+              size="sm"
+              className="flex-1"
+            >
+              <Folder className="w-4 h-4 mr-2" />
+              Projects
+            </Button>
+          </div>
+          
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            className="text-xs"
+            onClick={() => setNewProjectDialog(true)}
           >
-            <FileText className="w-4 h-4 mr-2" />
-            Projects
+            <Plus className="w-4 h-4 mr-1" />
+            New
           </Button>
         </div>
       </div>
@@ -303,93 +469,13 @@ export default function LeftPanel({ isCollapsed, onCollapse, onProjectClick }: L
             <p className="text-sm">Database not connected</p>
             <p className="text-xs opacity-70">Running in offline mode</p>
           </div>
-        ) : isLoadingPanelData ? (
+        ) : projectPagination.isLoadingMore ? (
           <div className="text-center text-gray-400 py-8">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto mb-4"></div>
             <p className="text-sm">Loading...</p>
           </div>
         ) : (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-medium text-gray-300">
-                Rocket Designs ({savedRockets.length})
-              </h2>
-              <Button 
-                variant="ghost" 
-                size="sm" 
-                className="text-xs"
-                onClick={() => setShowNewRocketDialog(true)}
-              >
-                <Plus className="w-4 h-4 mr-1" />
-                New
-              </Button>
-            </div>
-
-            {savedRockets.length === 0 ? (
-              <div className="text-center py-8 text-gray-400">
-                <FileText className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                <p className="text-sm mb-2">No rocket designs yet</p>
-                <Button 
-                  variant="secondary" 
-                  size="sm"
-                  onClick={() => setShowNewRocketDialog(true)}
-                >
-                  <Plus className="w-4 h-4 mr-2" />
-                  Create Your First Rocket
-                </Button>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {savedRockets.map((rocket) => (
-                  <Card key={rocket.id} className="p-4 hover-lift cursor-pointer group">
-                    <div className="flex items-start justify-between">
-                      <div 
-                        className="flex-1"
-                        onClick={() => handleLoadRocket(rocket)}
-                      >
-                        <h3 className="font-medium text-white text-sm">{rocket.name}</h3>
-                        <p className="text-xs text-gray-400 mt-1">
-                          {(rocket.body_tubes?.length || 0) + (rocket.fins?.length || 0) + (rocket.parachutes?.length || 0) + (rocket.nose_cone ? 1 : 0)} parts • {rocket.motor?.motor_database_id || 'No motor'}
-                        </p>
-                        <div className="flex items-center gap-2 mt-2">
-                          <RocketStatusBadge rocket={rocket} simulations={userSimulations} />
-                          <span className="text-xs text-gray-500">
-                            Modified recently
-                          </span>
-                        </div>
-                      </div>
-                      
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button 
-                            variant="ghost" 
-                            size="sm"
-                            className="opacity-0 group-hover:opacity-100 transition-opacity"
-                          >
-                            <MoreVertical className="w-4 h-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent>
-                          <DropdownMenuItem 
-                            onClick={() => handleLoadRocket(rocket)}
-                          >
-                            Open Project
-                          </DropdownMenuItem>
-                          <DropdownMenuItem 
-                            onClick={() => handleDeleteRocket(rocket.id)}
-                            className="text-red-400"
-                          >
-                            <Trash2 className="w-4 h-4 mr-2" />
-                            Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                  </Card>
-                ))}
-              </div>
-            )}
-          </div>
+          renderProjects()
         )}
       </div>
 
@@ -398,11 +484,11 @@ export default function LeftPanel({ isCollapsed, onCollapse, onProjectClick }: L
         <UserProfile />
       </div>
 
-      {/* New Rocket Dialog */}
-      <NewRocketDialog 
-        open={showNewRocketDialog}
-        onOpenChange={setShowNewRocketDialog}
-        onCreateRocket={handleCreateRocket}
+      {/* New Project Dialog */}
+      <NewProjectDialog 
+        open={newProjectDialog}
+        onOpenChange={setNewProjectDialog}
+        onCreateProject={handleCreateProject}
       />
     </div>
   )

@@ -12,6 +12,7 @@ import {
 import * as THREE from 'three'
 import { motion } from 'framer-motion'
 import { useRocket } from '@/lib/store'
+import { getDefaultRocket } from '@/lib/data/templates'
 
 // Flame component for rocket engine
 function RocketFlame({ isLaunched, throttle = 0, preLaunchFire = false, countdownStage = 0 }: { 
@@ -122,7 +123,8 @@ function RocketModel({
   highlightedPart,
   preLaunchFire = false,
   countdownStage = 0,
-  setHoveredPart
+  setHoveredPart,
+  displayRocket
 }: { 
   selected: boolean, 
   isLaunched: boolean,
@@ -130,12 +132,13 @@ function RocketModel({
   highlightedPart: string | null,
   preLaunchFire?: boolean,
   countdownStage?: number,
-  setHoveredPart: (part: string | null) => void
+  setHoveredPart: (part: string | null) => void,
+  displayRocket: any // Add displayRocket prop
 }) {
   const rocketRef = useRef<THREE.Group>(null)
   
-  // Get rocket from store
-  const rocket = useRocket(state => state.rocket)
+  // Use the displayRocket passed as prop instead of getting from store
+  const rocket = displayRocket;
   
   // Get component-specific properties 
   const nosePart = rocket.nose_cone;
@@ -855,7 +858,8 @@ function RocketSimulation({
   resetTrigger,
   setFlightData,
   highlightedPart,
-  onHoverPart
+  onHoverPart,
+  displayRocket
 }: {
   selected: boolean,
   isLaunched: boolean,
@@ -863,7 +867,8 @@ function RocketSimulation({
   resetTrigger: boolean,
   setFlightData: (position: [number, number, number], velocity: [number, number, number]) => void,
   highlightedPart: string | null,
-  onHoverPart?: (part: string | null) => void
+  onHoverPart?: (part: string | null) => void,
+  displayRocket: any // Add displayRocket prop
 }) {
   // Track mount/unmount for debugging
   useEffect(() => {
@@ -932,6 +937,7 @@ function RocketSimulation({
           preLaunchFire={showFire}
           countdownStage={3} // Always max flame intensity
           setHoveredPart={setHoveredPart}
+          displayRocket={displayRocket}
       />
     </group>
     </>
@@ -1535,17 +1541,43 @@ export default function MiddlePanel({ isMobile = false, isSmallDesktop = false, 
   const [throttle, setThrottle] = useState(0.8);
   const [resetTrigger, setResetTrigger] = useState(false);
   
-  // Get rocket from store for key generation
-  const rocket = useRocket(state => state.rocket);
+  // Get rocket and project data from store
+  const { rocket, currentProject, isDatabaseConnected } = useRocket();
+  
+  // Determine which rocket to display
+  const displayRocket = useMemo(() => {
+    if (!currentProject) {
+      // No project selected - show default rocket or current rocket if it's unsaved
+      if (!rocket.project_id) {
+        // Current rocket is not associated with any project, show it
+        return rocket;
+      } else {
+        // Current rocket belongs to a project but no project is selected, show default
+        return getDefaultRocket();
+      }
+    } else if (rocket.project_id === currentProject.id) {
+      // Project is selected and rocket matches - show the project's rocket
+      return rocket;
+    } else {
+      // Project is selected but rocket doesn't match
+      // This happens during loading or when switching projects
+      // For now, show the current rocket until the project rocket loads
+      console.log('⚠️ Project selected but rocket mismatch. Project:', currentProject.id, 'Rocket project:', rocket.project_id);
+      return rocket;
+    }
+  }, [rocket, currentProject]);
+  
+  // Show loading state when project is loading
+  const isProjectLoading = currentProject && rocket.project_id !== currentProject.id;
   
   // FORCE RE-RENDER: Monitor rocket state changes aggressively
   useEffect(() => {
-    const currentRocketHash = JSON.stringify(rocket);
+    const currentRocketHash = JSON.stringify(displayRocket);
     if (currentRocketHash !== lastRocketHash && lastRocketHash !== '') {
       console.log('🔄 MiddlePanel: Rocket state changed, forcing re-render!');
       console.log('📊 Previous hash length:', lastRocketHash.length);
       console.log('📊 Current hash length:', currentRocketHash.length);
-      const partsCount = (rocket.nose_cone ? 1 : 0) + rocket.body_tubes.length + rocket.fins.length + rocket.parachutes.length + (rocket.motor ? 1 : 0);
+      const partsCount = (displayRocket.nose_cone ? 1 : 0) + displayRocket.body_tubes.length + displayRocket.fins.length + displayRocket.parachutes.length + (displayRocket.motor ? 1 : 0);
       console.log('📦 Parts count changed:', partsCount);
       
       setForceRenderKey(prev => {
@@ -1555,7 +1587,7 @@ export default function MiddlePanel({ isMobile = false, isSmallDesktop = false, 
       });
     }
     setLastRocketHash(currentRocketHash);
-  }, [rocket, lastRocketHash]);
+  }, [displayRocket, lastRocketHash]);
   
   // FORCE RE-RENDER: Listen for action dispatcher events
   useEffect(() => {
@@ -1574,13 +1606,13 @@ export default function MiddlePanel({ isMobile = false, isSmallDesktop = false, 
     }
   }, []);
   
-  // Create a simple hash of components for key generation
+  // Create a simple hash of components for key generation using displayRocket
   const componentsHash = [
-    rocket.nose_cone ? `nose-${rocket.nose_cone.id}-${rocket.nose_cone.length_m}` : '',
-    ...rocket.body_tubes.map(body => `body-${body.id}-${body.outer_radius_m}-${body.length_m}`),
-    ...rocket.fins.map(fin => `fin-${fin.id}-${fin.root_chord_m}-${fin.span_m}`),
-    rocket.motor ? `motor-${rocket.motor.motor_database_id}` : '',
-    ...rocket.parachutes.map(para => `para-${para.id}`)
+    displayRocket.nose_cone ? `nose-${displayRocket.nose_cone.id}-${displayRocket.nose_cone.length_m}` : '',
+    ...displayRocket.body_tubes.map(body => `body-${body.id}-${body.outer_radius_m}-${body.length_m}`),
+    ...displayRocket.fins.map(fin => `fin-${fin.id}-${fin.root_chord_m}-${fin.span_m}`),
+    displayRocket.motor ? `motor-${displayRocket.motor.motor_database_id}` : '',
+    ...displayRocket.parachutes.map(para => `para-${para.id}`)
   ].filter(Boolean).join('|');
   
   // ENHANCED KEY GENERATION with force render key
@@ -1859,6 +1891,7 @@ export default function MiddlePanel({ isMobile = false, isSmallDesktop = false, 
               setFlightData={updateFlightData}
               highlightedPart={selectedPart || hoveredPart}
               onHoverPart={handleHoverPart}
+              displayRocket={displayRocket}
             />
           </Suspense>
         </Canvas>

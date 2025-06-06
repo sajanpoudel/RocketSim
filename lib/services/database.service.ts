@@ -39,7 +39,8 @@ import type {
   NewSimulation,
   ChatMessage,
   NewChatMessage,
-  AnalysisResult
+  AnalysisResult,
+  Project as DbProject
 } from '@/lib/database/supabase';
 import { Rocket, SimulationResult } from '@/types/rocket';
 import { toJson } from '@/lib/database/types';
@@ -1149,18 +1150,280 @@ export class DatabaseService {
       return null;
     }
   }
+
+  // Project management functions
+  async createProject(name: string, description?: string): Promise<DbProject | null> {
+    try {
+      const user = await getCurrentUser();
+      if (!user) throw new Error('User not authenticated');
+
+      const { data, error } = await supabase
+        .from('projects')
+        .insert({
+          user_id: user.id,
+          name,
+          description: description || `Rocket project: ${name}`,
+          is_public: false
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      console.error('Error creating project:', error);
+      return null;
+    }
+  }
+
+  async getUserProjects(limit: number = 20, offset: number = 0): Promise<{ projects: DbProject[], totalCount: number }> {
+    try {
+      console.log(`🔍 getUserProjects: Starting to fetch user projects (limit: ${limit}, offset: ${offset})...`);
+      const user = await getCurrentUser();
+      console.log('🔍 getUserProjects: Current user:', user ? user.id : 'null');
+      if (!user) {
+        console.log('🔍 getUserProjects: No user found, returning empty array');
+        return { projects: [], totalCount: 0 };
+      }
+
+      console.log('🔍 getUserProjects: Querying project_summary table...');
+      
+      // First get the total count
+      const { count, error: countError } = await supabase
+        .from('project_summary')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', user.id);
+
+      if (countError) {
+        console.error('🔍 getUserProjects: Count query error:', countError);
+        throw countError;
+      }
+
+      // Then get the paginated data
+      const { data, error } = await supabase
+        .from('project_summary')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('updated_at', { ascending: false })
+        .range(offset, offset + limit - 1);
+
+      console.log('🔍 getUserProjects: Query result:', { 
+        dataCount: data?.length || 0, 
+        totalCount: count || 0, 
+        error 
+      });
+      
+      if (error) {
+        console.error('🔍 getUserProjects: Data query error:', error);
+        throw error;
+      }
+
+      const projects = data || [];
+      console.log('🔍 getUserProjects: Returning projects:', projects.length);
+      return { projects, totalCount: count || 0 };
+    } catch (error) {
+      console.error('❌ getUserProjects: Error fetching projects:', error);
+      return { projects: [], totalCount: 0 };
+    }
+  }
+
+  async updateProject(project: Partial<DbProject> & { id: string }): Promise<DbProject | null> {
+    try {
+      const user = await getCurrentUser();
+      if (!user) throw new Error('User not authenticated');
+
+      const { data, error } = await supabase
+        .from('projects')
+        .update({
+          ...project,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', project.id)
+        .eq('user_id', user.id)
+        .select()
+        .single();
+
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      console.error('Error updating project:', error);
+      return null;
+    }
+  }
+
+  async deleteProject(projectId: string): Promise<boolean> {
+    try {
+      const user = await getCurrentUser();
+      if (!user) throw new Error('User not authenticated');
+
+      const { error } = await supabase
+        .from('projects')
+        .delete()
+        .eq('id', projectId)
+        .eq('user_id', user.id);
+
+      if (error) throw error;
+      return true;
+    } catch (error) {
+      console.error('Error deleting project:', error);
+      return false;
+    }
+  }
+
+  async getProjectRockets(projectId: string): Promise<DbRocket[]> {
+    try {
+      const user = await getCurrentUser();
+      if (!user) return [];
+
+      const { data, error } = await supabase
+        .from('rockets')
+        .select('*')
+        .eq('project_id', projectId)
+        .eq('user_id', user.id)
+        .order('updated_at', { ascending: false });
+
+      if (error) throw error;
+      return data || [];
+    } catch (error) {
+      console.error('Error fetching project rockets:', error);
+      return [];
+    }
+  }
+
+  async getLatestProjectRocket(projectId: string): Promise<DbRocket | null> {
+    try {
+      const user = await getCurrentUser();
+      if (!user) return null;
+
+      const { data, error } = await supabase
+        .from('rockets')
+        .select('*')
+        .eq('project_id', projectId)
+        .eq('user_id', user.id)
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (error && error.code !== 'PGRST116') throw error;
+      return data || null;
+    } catch (error) {
+      console.error('Error fetching latest project rocket:', error);
+      return null;
+    }
+  }
+
+  // Chat functions updated for projects
+  async getChatHistoryByProject(projectId: string, limit: number = 50): Promise<any[]> {
+    try {
+      const user = await getCurrentUser();
+      if (!user) return [];
+
+      const { data, error } = await supabase
+        .from('chat_messages')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('project_id', projectId)
+        .order('created_at', { ascending: true })
+        .limit(limit);
+
+      if (error) throw error;
+      return data || [];
+    } catch (error) {
+      console.error('Error fetching chat history by project:', error);
+      return [];
+    }
+  }
+
+  // Updated rocket functions to work with projects
+  async saveRocketToDb(rocket: Rocket, projectId?: string): Promise<DbRocket | null> {
+    try {
+      const user = await getCurrentUser();
+      if (!user) throw new Error('User not authenticated');
+
+      // If no project ID provided and rocket doesn't have one, create a new project
+      let finalProjectId = projectId || rocket.project_id;
+      if (!finalProjectId) {
+        const newProject = await this.createProject(rocket.name);
+        if (!newProject) throw new Error('Failed to create project');
+        finalProjectId = newProject.id;
+      }
+
+      const rocketData = {
+        user_id: user.id,
+        project_id: finalProjectId,
+        name: rocket.name,
+        parts: rocket as any,
+        motor_id: rocket.motor.motor_database_id,
+        drag_coefficient: 0.5, // Default value
+        units: 'metric',
+        is_public: false
+      };
+
+      const { data, error } = await supabase
+        .from('rockets')
+        .insert(rocketData)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // Also update the project's updated_at timestamp
+      await supabase
+        .from('projects')
+        .update({ updated_at: new Date().toISOString() })
+        .eq('id', finalProjectId);
+
+      return data;
+    } catch (error) {
+      console.error('Error saving rocket to database:', error);
+      return null;
+    }
+  }
+
+  async saveChatToDb(
+    messages: Array<{role: string, content: string, agent?: string}>, 
+    projectId: string,
+    rocketId?: string
+  ): Promise<boolean> {
+    try {
+      const user = await getCurrentUser();
+      if (!user) return false;
+
+      const sessionId = await this.getCurrentSession();
+      
+      const chatMessages = messages.map(msg => ({
+        user_id: user.id,
+        session_id: sessionId,
+        project_id: projectId,
+        rocket_id: rocketId || null,
+        role: msg.role,
+        content: msg.content,
+        context_data: msg.agent ? { agent: msg.agent } : null
+      }));
+
+      const { error } = await supabase
+        .from('chat_messages')
+        .insert(chatMessages);
+
+      if (error) throw error;
+      return true;
+    } catch (error) {
+      console.error('Error saving chat to database:', error);
+      return false;
+    }
+  }
 }
 
 // Export singleton instance
 export const databaseService = DatabaseService.getInstance();
 
 // Export helper functions for easy integration
-export const saveRocketToDb = (rocket: Rocket) => databaseService.saveRocket(rocket);
+export const saveRocketToDb = (rocket: Rocket, projectId?: string) => databaseService.saveRocketToDb(rocket, projectId);
 export const loadUserRockets = () => databaseService.loadUserRockets();
 export const saveSimulationToDb = (rocketId: string, result: SimulationResult, fidelity?: string) => 
   databaseService.saveSimulation(rocketId, result, fidelity);
-export const saveChatToDb = (sessionId: string, role: 'user' | 'assistant' | 'system', content: string, rocketId?: string, actions?: any) =>
-  databaseService.saveChatMessage(sessionId, role, content, rocketId, actions);
+export const saveChatToDb = (messages: Array<{role: string, content: string, agent?: string}>, projectId: string, rocketId?: string) =>
+  databaseService.saveChatToDb(messages, projectId, rocketId);
 export const getCurrentSessionId = () => databaseService.getCurrentSession();
 export const testDatabaseConnection = () => databaseService.testConnection();
 
@@ -1178,4 +1441,14 @@ export const saveRocketVersion = (rocketId: string, rocket: Rocket, description?
 export const getRocketVersions = (rocketId: string) => databaseService.getRocketVersions(rocketId);
 export const revertToRocketVersion = (rocketId: string, versionId: string) => 
   databaseService.revertToRocketVersion(rocketId, versionId);
-export const cleanupOrphanedSessions = () => databaseService.cleanupOrphanedSessions(); 
+export const cleanupOrphanedSessions = () => databaseService.cleanupOrphanedSessions();
+
+// Project management functions - using class methods
+export const createProject = (name: string, description?: string) => databaseService.createProject(name, description);
+export const getUserProjects = (limit: number = 20, offset: number = 0) => databaseService.getUserProjects(limit, offset);
+export const updateProject = (project: Partial<DbProject> & { id: string }) => databaseService.updateProject(project);
+export const deleteProject = (projectId: string) => databaseService.deleteProject(projectId);
+export const getProjectRockets = (projectId: string) => databaseService.getProjectRockets(projectId);
+export const getLatestProjectRocket = (projectId: string) => databaseService.getLatestProjectRocket(projectId);
+export const getChatHistoryByProject = (projectId: string, limit?: number) => databaseService.getChatHistoryByProject(projectId, limit);
+export const updateRocket = (rocket: Rocket) => databaseService.updateRocket(rocket); 

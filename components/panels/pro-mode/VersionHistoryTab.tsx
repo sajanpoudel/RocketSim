@@ -2,7 +2,7 @@ import React, { useEffect } from 'react';
 import { useRocket } from '@/lib/store';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Clock, Undo2, GitCommit, Rocket } from 'lucide-react';
+import { Clock, Undo2, GitCommit, Rocket, FolderOpen } from 'lucide-react';
 
 function formatTimeAgo(dateString: string): string {
   const date = new Date(dateString);
@@ -26,18 +26,20 @@ export default function VersionHistoryTab() {
     loadRocketVersion,
     rocket,
     savedRockets,
+    currentProject,
     isDatabaseConnected
   } = useRocket();
 
-  // Check if current rocket is saved in database
-  const isRocketSaved = savedRockets.some(r => r.id === rocket.id);
-  const isNewProject = !isRocketSaved || rocket.id.includes('local-') || rocket.id.length < 10;
+  // Check if we're in a project context
+  const isInProject = currentProject && rocket.project_id === currentProject.id;
+  const isNewProject = !currentProject || !isInProject;
 
   useEffect(() => {
-    if (isDatabaseConnected && isRocketSaved) {
+    if (isDatabaseConnected && isInProject) {
+      // Load versions for the current project rocket
       loadRocketVersions();
     }
-  }, [loadRocketVersions, isDatabaseConnected, isRocketSaved, rocket.id]);
+  }, [loadRocketVersions, isDatabaseConnected, isInProject, rocket.id, currentProject?.id]);
 
   const handleRevert = (versionId: string) => {
     if (window.confirm('Are you sure you want to revert to this version? This will create a new version with the reverted design.')) {
@@ -65,22 +67,31 @@ export default function VersionHistoryTab() {
         </button>
       </div>
 
-      {/* Current Version Info */}
+      {/* Current Project/Rocket Info */}
       <div className="bg-blue-500/10 rounded-lg border border-blue-500/20 p-4">
         <h4 className="font-medium text-blue-100 mb-2 flex items-center gap-2">
-          <GitCommit className="w-4 h-4" />
-          Current Design
+          {isInProject ? (
+            <>
+              <FolderOpen className="w-4 h-4" />
+              Project: {currentProject.name}
+            </>
+          ) : (
+            <>
+              <GitCommit className="w-4 h-4" />
+              Current Design
+            </>
+          )}
         </h4>
         <p className="text-sm text-blue-200">{rocket.name}</p>
         <p className="text-xs text-blue-300 mt-1">
-          {(rocket.nose_cone ? 1 : 0) + rocket.body_tubes.length + rocket.fins.length + rocket.parachutes.length + (rocket.motor ? 1 : 0)} parts • {rocket.motor.motor_database_id} • {isNewProject ? 'New project' : 'Saved project'}
+          {(rocket.nose_cone ? 1 : 0) + rocket.body_tubes.length + rocket.fins.length + rocket.parachutes.length + (rocket.motor ? 1 : 0)} parts • {rocket.motor.motor_database_id} • {isNewProject ? 'No project' : 'Project rocket'}
         </p>
       </div>
 
       {/* Version History */}
       <div className="space-y-4">
         <h4 className="font-medium text-white mb-4">
-          Version History ({rocketVersions.length})
+          {isInProject ? `Project Version History (${rocketVersions.length})` : 'Version History (0)'}
         </h4>
 
         {!isDatabaseConnected ? (
@@ -94,10 +105,10 @@ export default function VersionHistoryTab() {
         ) : isNewProject ? (
           <div className="text-center py-8 text-gray-400">
             <Rocket className="w-12 h-12 mx-auto mb-4 opacity-50" />
-            <p className="text-sm mb-2">New project - no version history yet</p>
+            <p className="text-sm mb-2">Not in a project</p>
             <p className="text-xs opacity-70">
-              Make changes to your rocket design to create version history.<br/>
-              Save the project first to enable version tracking.
+              Select or create a project to track version history.<br/>
+              Projects group related rocket designs and conversations.
             </p>
           </div>
         ) : isLoadingVersions ? (
@@ -199,7 +210,7 @@ export default function VersionHistoryTab() {
           <li>• Revert to any previous design state</li>
           <li>• Version history is preserved across sessions</li>
           <li>• Reverting creates a new version (non-destructive)</li>
-          <li>• {isNewProject ? 'Save your project first to enable versioning' : 'Each project has its own version history'}</li>
+          <li>• {isNewProject ? 'Select a project to enable version tracking' : 'Each project has its own version history'}</li>
         </ul>
       </div>
     </div>
