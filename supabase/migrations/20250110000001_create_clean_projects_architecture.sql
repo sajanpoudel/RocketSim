@@ -149,6 +149,51 @@ CREATE TABLE IF NOT EXISTS public.environment_configs (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Create motors database table (MISSING CRITICAL FUNCTIONALITY)
+CREATE TABLE IF NOT EXISTS public.motors (
+    id TEXT PRIMARY KEY,
+    manufacturer TEXT NOT NULL,
+    name TEXT NOT NULL,
+    impulse_class TEXT NOT NULL,
+    total_impulse REAL,
+    burn_time REAL,
+    average_thrust REAL,
+    max_thrust REAL,
+    propellant_mass REAL,
+    total_mass REAL,
+    diameter REAL,
+    length REAL,
+    thrust_curve JSONB,
+    specifications JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Create performance metrics table (MISSING CRITICAL FUNCTIONALITY)  
+CREATE TABLE IF NOT EXISTS public.performance_metrics (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    rocket_id UUID REFERENCES public.rockets(id) ON DELETE CASCADE,
+    metric_type TEXT NOT NULL,
+    value REAL NOT NULL,
+    metadata JSONB,
+    recorded_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Create design templates table (MISSING CRITICAL FUNCTIONALITY)
+CREATE TABLE IF NOT EXISTS public.design_templates (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name TEXT NOT NULL,
+    description TEXT,
+    difficulty_level TEXT DEFAULT 'beginner',
+    rocket_config JSONB NOT NULL,
+    created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+    usage_count INTEGER DEFAULT 0,
+    rating REAL DEFAULT 0.0,
+    tags TEXT[],
+    is_featured BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Create indexes for performance
 CREATE INDEX IF NOT EXISTS idx_projects_user_id ON public.projects(user_id);
 CREATE INDEX IF NOT EXISTS idx_projects_created_at ON public.projects(created_at);
@@ -180,6 +225,20 @@ CREATE INDEX IF NOT EXISTS idx_weather_cache_location_key ON public.weather_cach
 CREATE INDEX IF NOT EXISTS idx_weather_cache_expires_at ON public.weather_cache(expires_at);
 
 CREATE INDEX IF NOT EXISTS idx_environment_configs_user_id ON public.environment_configs(user_id);
+
+-- Add indexes for motors table
+CREATE INDEX IF NOT EXISTS idx_motors_class ON public.motors(impulse_class);
+CREATE INDEX IF NOT EXISTS idx_motors_manufacturer ON public.motors(manufacturer);
+
+-- Add indexes for performance_metrics table  
+CREATE INDEX IF NOT EXISTS idx_metrics_user_rocket ON public.performance_metrics(user_id, rocket_id);
+CREATE INDEX IF NOT EXISTS idx_metrics_type_time ON public.performance_metrics(metric_type, recorded_at);
+CREATE INDEX IF NOT EXISTS idx_metrics_recorded_at ON public.performance_metrics(recorded_at);
+
+-- Add indexes for design_templates table
+CREATE INDEX IF NOT EXISTS idx_templates_difficulty ON public.design_templates(difficulty_level);
+CREATE INDEX IF NOT EXISTS idx_templates_featured ON public.design_templates(is_featured) WHERE is_featured = TRUE;
+CREATE INDEX IF NOT EXISTS idx_templates_rating ON public.design_templates(rating DESC);
 
 -- Create project summary view for efficient queries
 CREATE OR REPLACE VIEW public.project_summary AS
@@ -244,6 +303,9 @@ ALTER TABLE public.user_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.analysis_results ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.weather_cache ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.environment_configs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.motors ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.performance_metrics ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.design_templates ENABLE ROW LEVEL SECURITY;
 
 -- Create RLS policies for projects
 CREATE POLICY "Users can view their own projects" ON public.projects
@@ -328,6 +390,36 @@ CREATE POLICY "Users can update their own environment configs" ON public.environ
 
 CREATE POLICY "Users can delete their own environment configs" ON public.environment_configs
     FOR DELETE USING (auth.uid() = user_id);
+
+-- Create RLS policies for motors (public read access for all users)
+CREATE POLICY "All users can view motors" ON public.motors
+    FOR SELECT USING (true);
+
+-- Create RLS policies for performance_metrics
+CREATE POLICY "Users can view own performance metrics" ON public.performance_metrics
+    FOR SELECT USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert own performance metrics" ON public.performance_metrics
+    FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update own performance metrics" ON public.performance_metrics
+    FOR UPDATE USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete own performance metrics" ON public.performance_metrics
+    FOR DELETE USING (auth.uid() = user_id);
+
+-- Create RLS policies for design_templates (public read, own modify)
+CREATE POLICY "All users can view design templates" ON public.design_templates
+    FOR SELECT USING (true);
+
+CREATE POLICY "Users can insert own design templates" ON public.design_templates
+    FOR INSERT WITH CHECK (auth.uid() = created_by);
+
+CREATE POLICY "Users can update own design templates" ON public.design_templates
+    FOR UPDATE USING (auth.uid() = created_by);
+
+CREATE POLICY "Users can delete own design templates" ON public.design_templates
+    FOR DELETE USING (auth.uid() = created_by);
 
 -- Create trigger to update project updated_at when rockets change
 CREATE OR REPLACE FUNCTION update_project_timestamp()
@@ -566,6 +658,275 @@ BEGIN
         NOW()::TIMESTAMPTZ;
 END;
 $$;
+
+-- Create component legacy conversion function (MISSING CRITICAL FUNCTIONALITY)
+CREATE OR REPLACE FUNCTION convert_legacy_to_components(legacy_parts JSONB)
+RETURNS JSONB AS $$
+DECLARE
+  components JSONB;
+  nose_cone JSONB := NULL;
+  body_tubes JSONB := '[]'::jsonb;
+  fins JSONB := '[]'::jsonb;
+  motor JSONB := NULL;
+  parachutes JSONB := '[]'::jsonb;
+  part JSONB;
+  body_tube JSONB;
+  fin JSONB;
+BEGIN
+  -- Handle null or empty input
+  IF legacy_parts IS NULL OR legacy_parts = 'null'::jsonb THEN
+    legacy_parts := '[]'::jsonb;
+  END IF;
+  
+  -- If input is not an array, wrap it
+  IF NOT (legacy_parts ? '0') THEN
+    legacy_parts := jsonb_build_array(legacy_parts);
+  END IF;
+  
+  -- Process each legacy part
+  FOR part IN SELECT * FROM jsonb_array_elements(legacy_parts)
+  LOOP
+    CASE part->>'type'
+      WHEN 'nose' THEN
+        nose_cone := jsonb_build_object(
+          'id', COALESCE(part->>'id', gen_random_uuid()::text),
+          'shape', COALESCE(part->>'shape', 'ogive'),
+          'length_m', CASE 
+            WHEN part->'length' IS NOT NULL THEN (part->>'length')::numeric / 100.0
+            ELSE 0.15 
+          END,
+          'base_radius_m', CASE 
+            WHEN part->'baseØ' IS NOT NULL THEN (part->>'baseØ')::numeric / 200.0
+            ELSE 0.05 
+          END,
+          'wall_thickness_m', 0.002,
+          'material_density_kg_m3', 1600.0,
+          'surface_roughness_m', 1e-5,
+          'color', COALESCE(part->>'color', '#A0A7B8')
+        );
+        
+      WHEN 'body' THEN
+        body_tube := jsonb_build_object(
+          'id', COALESCE(part->>'id', gen_random_uuid()::text),
+          'outer_radius_m', CASE 
+            WHEN part->'Ø' IS NOT NULL THEN (part->>'Ø')::numeric / 200.0
+            ELSE 0.05 
+          END,
+          'length_m', CASE 
+            WHEN part->'length' IS NOT NULL THEN (part->>'length')::numeric / 100.0
+            ELSE 0.40 
+          END,
+          'wall_thickness_m', 0.003,
+          'material_density_kg_m3', 1600.0,
+          'surface_roughness_m', 1e-5,
+          'color', COALESCE(part->>'color', '#8C8D91')
+        );
+        body_tubes := body_tubes || body_tube;
+        
+      WHEN 'fin' THEN
+        fin := jsonb_build_object(
+          'id', COALESCE(part->>'id', gen_random_uuid()::text),
+          'fin_count', 3,
+          'root_chord_m', CASE 
+            WHEN part->'root' IS NOT NULL THEN (part->>'root')::numeric / 100.0
+            ELSE 0.08 
+          END,
+          'tip_chord_m', CASE 
+            WHEN part->'root' IS NOT NULL THEN (part->>'root')::numeric / 200.0
+            ELSE 0.04 
+          END,
+          'span_m', CASE 
+            WHEN part->'span' IS NOT NULL THEN (part->>'span')::numeric / 100.0
+            ELSE 0.06 
+          END,
+          'sweep_length_m', CASE 
+            WHEN part->'sweep' IS NOT NULL THEN (part->>'sweep')::numeric / 100.0
+            ELSE 0.02 
+          END,
+          'thickness_m', 0.006,
+          'material_density_kg_m3', 650.0,
+          'airfoil', 'symmetric',
+          'cant_angle_deg', 0.0,
+          'color', COALESCE(part->>'color', '#A0A7B8')
+        );
+        fins := fins || fin;
+        
+      WHEN 'engine' THEN
+        motor := jsonb_build_object(
+          'id', COALESCE(part->>'id', 'motor'),
+          'motor_database_id', 'C6-5',
+          'position_from_tail_m', 0.0
+        );
+        
+      ELSE
+        NULL;
+    END CASE;
+  END LOOP;
+  
+  -- Set defaults if components are missing
+  IF nose_cone IS NULL THEN
+    nose_cone := jsonb_build_object(
+      'id', gen_random_uuid()::text,
+      'shape', 'ogive',
+      'length_m', 0.15,
+      'base_radius_m', 0.05,
+      'wall_thickness_m', 0.002,
+      'material_density_kg_m3', 1600.0,
+      'surface_roughness_m', 1e-5,
+      'color', '#A0A7B8'
+    );
+  END IF;
+  
+  IF motor IS NULL THEN
+    motor := jsonb_build_object(
+      'id', 'motor',
+      'motor_database_id', 'C6-5',
+      'position_from_tail_m', 0.0
+    );
+  END IF;
+  
+  -- Add default parachute
+  parachutes := jsonb_build_array(jsonb_build_object(
+    'id', gen_random_uuid()::text,
+    'name', 'Main Parachute',
+    'cd_s_m2', 1.0,
+    'trigger', 'apogee',
+    'sampling_rate_hz', 105.0,
+    'lag_s', 1.5,
+    'noise_bias', 0.0,
+    'noise_deviation', 8.3,
+    'noise_correlation', 0.5,
+    'position_from_tail_m', 0.0,
+    'color', '#FF6B35'
+  ));
+  
+  -- Build final component structure
+  components := jsonb_build_object(
+    'nose_cone', nose_cone,
+    'body_tubes', body_tubes,
+    'fins', fins,
+    'motor', motor,
+    'parachutes', parachutes,
+    'coordinate_system', 'tail_to_nose'
+  );
+  
+  RETURN components;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create user synchronization function (MISSING CRITICAL FUNCTIONALITY)
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS trigger AS $$
+BEGIN
+    INSERT INTO public.users (id, email, created_at, updated_at)
+    VALUES (NEW.id, NEW.email, NEW.created_at, NEW.updated_at)
+    ON CONFLICT (id) DO UPDATE SET
+        email = NEW.email,
+        updated_at = NEW.updated_at;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Create trigger to sync users from auth to public (MISSING CRITICAL FUNCTIONALITY)
+CREATE TRIGGER on_auth_user_created
+    AFTER INSERT OR UPDATE ON auth.users
+    FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- Create cleanup function for expired cache (MISSING CRITICAL FUNCTIONALITY)
+CREATE OR REPLACE FUNCTION cleanup_expired_cache()
+RETURNS void AS $$
+BEGIN
+    DELETE FROM public.weather_cache WHERE expires_at < NOW();
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create materialized view for component statistics (MISSING CRITICAL FUNCTIONALITY)
+CREATE MATERIALIZED VIEW IF NOT EXISTS public.rocket_component_stats AS
+SELECT 
+  parts->'nose_cone'->>'shape' as nose_shape,
+  parts->'motor'->>'motor_database_id' as motor_id,
+  jsonb_array_length(parts->'body_tubes') as body_tube_count,
+  jsonb_array_length(parts->'fins') as fin_set_count,
+  jsonb_array_length(parts->'parachutes') as parachute_count,
+  COUNT(*) as rocket_count
+FROM public.rockets
+WHERE parts IS NOT NULL
+GROUP BY 
+  parts->'nose_cone'->>'shape',
+  parts->'motor'->>'motor_database_id',
+  jsonb_array_length(parts->'body_tubes'),
+  jsonb_array_length(parts->'fins'),
+  jsonb_array_length(parts->'parachutes');
+
+-- Create performance views (MISSING CRITICAL FUNCTIONALITY)
+CREATE OR REPLACE VIEW public.rocket_performance_summary AS
+SELECT 
+    r.id as rocket_id,
+    r.name,
+    r.user_id,
+    COUNT(s.id) as simulation_count,
+    AVG(s.max_altitude) as avg_altitude,
+    MAX(s.max_altitude) as max_altitude,
+    AVG(s.stability_margin) as avg_stability,
+    MIN(s.created_at) as first_simulation,
+    MAX(s.created_at) as last_simulation
+FROM public.rockets r
+LEFT JOIN public.simulations s ON r.id = s.rocket_id
+WHERE s.status = 'completed'
+GROUP BY r.id, r.name, r.user_id;
+
+CREATE OR REPLACE VIEW public.user_activity_summary AS
+SELECT 
+    au.id as user_id,
+    au.email,
+    COUNT(DISTINCT r.id) as rockets_created,
+    COUNT(DISTINCT s.id) as simulations_run,
+    COUNT(DISTINCT cm.id) as messages_sent,
+    MAX(us.last_activity) as last_activity
+FROM auth.users au
+LEFT JOIN public.rockets r ON au.id = r.user_id
+LEFT JOIN public.simulations s ON au.id = s.user_id
+LEFT JOIN public.chat_messages cm ON au.id = cm.user_id
+LEFT JOIN public.user_sessions us ON au.id = us.user_id
+GROUP BY au.id, au.email;
+
+-- Create refresh functions for materialized views (MISSING CRITICAL FUNCTIONALITY)
+CREATE OR REPLACE FUNCTION refresh_rocket_component_stats()
+RETURNS void AS $$
+BEGIN
+  REFRESH MATERIALIZED VIEW public.rocket_component_stats;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION trigger_refresh_component_stats()
+RETURNS trigger AS $$
+BEGIN
+  PERFORM pg_notify('refresh_component_stats', '');
+  RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create component stats refresh trigger
+CREATE TRIGGER rocket_component_stats_refresh
+  AFTER INSERT OR UPDATE OR DELETE ON public.rockets
+  FOR EACH STATEMENT
+  EXECUTE FUNCTION trigger_refresh_component_stats();
+
+-- Create update timestamp function (MISSING CRITICAL FUNCTIONALITY)
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create update triggers for timestamps  
+CREATE TRIGGER update_rockets_updated_at BEFORE UPDATE ON public.rockets
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_projects_updated_at BEFORE UPDATE ON public.projects
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- Success message
 SELECT 'Clean project architecture created successfully!' as message; 
