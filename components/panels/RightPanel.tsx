@@ -195,6 +195,10 @@ export default function RightPanel({ onCollapse, isCollapsed, loadSessionId, onC
     }
   };
 
+  // TODO: Replace with backend API calls for precise calculations
+  const componentCount = (rocket.body_tubes?.length || 0) + (rocket.fins?.length || 0) + (rocket.parachutes?.length || 0) + 1 // +1 for nose cone
+  const complexity = componentCount > 5 ? 'Advanced' : componentCount > 3 ? 'Intermediate' : 'Simple'
+
   return (
     <div className="w-full h-full flex flex-col relative bg-black min-w-0">
       {/* Floating Analysis Tabs */}

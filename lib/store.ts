@@ -38,6 +38,7 @@ import {
   updateRocket
 } from '@/lib/services/database.service';
 import { getDefaultRocket } from '@/lib/data/templates';
+import { AnalysisService } from '@/lib/services/analysis.service';
 
 // Use centralized default rocket from templates
 const DEFAULT_ROCKET = getDefaultRocket();
@@ -246,12 +247,45 @@ export const useRocket = create<RocketState>()((set, get) => ({
         
         if (savedRocket) {
           // THEN: Save simulation with the rocket ID from database
-          await saveSimulationToDb(
+          const simulationResult = await saveSimulationToDb(
             savedRocket.id, // Use DB rocket ID, not store rocket ID
             sim, 
             state.lastSimulationType
           );
-          console.log('Simulation saved successfully');
+          
+          if (simulationResult) {
+            // Save analysis results to analysis_results table
+            await AnalysisService.saveAnalysisResult(
+              savedRocket.id,
+              'flight_simulation',
+              {
+                fidelity: state.lastSimulationType,
+                maxAltitude: sim.maxAltitude,
+                maxVelocity: sim.maxVelocity,
+                maxAcceleration: sim.maxAcceleration,
+                apogeeTime: sim.apogeeTime,
+                stabilityMargin: sim.stabilityMargin,
+                thrustCurve: sim.thrustCurve,
+                flightEvents: sim.flightEvents,
+                trajectory: sim.trajectory
+              },
+              {
+                environment: state.environment,
+                launchParameters: state.launchParameters
+              },
+              simulationResult.id
+            );
+            
+            // Save key performance metrics to performance_metrics table
+            await Promise.all([
+              AnalysisService.savePerformanceMetrics(savedRocket.id, 'max_altitude', sim.maxAltitude || 0, { units: 'm', fidelity: state.lastSimulationType }),
+              AnalysisService.savePerformanceMetrics(savedRocket.id, 'max_velocity', sim.maxVelocity || 0, { units: 'm/s', fidelity: state.lastSimulationType }),
+              AnalysisService.savePerformanceMetrics(savedRocket.id, 'stability_margin', sim.stabilityMargin || 0, { units: 'cal', fidelity: state.lastSimulationType }),
+              AnalysisService.savePerformanceMetrics(savedRocket.id, 'apogee_time', sim.apogeeTime || 0, { units: 's', fidelity: state.lastSimulationType })
+            ]);
+          }
+          
+          console.log('Simulation and analysis results saved successfully');
         } else {
           // Fallback: try with store rocket ID
           await saveSimulationToDb(
@@ -271,10 +305,140 @@ export const useRocket = create<RocketState>()((set, get) => ({
   setLaunchParameters: (launchParameters) => set({ launchParameters }),
   
   // Analysis actions
-  setMonteCarloResult: (monteCarloResult) => set({ monteCarloResult }),
-  setStabilityAnalysis: (stabilityAnalysis) => set({ stabilityAnalysis }),
-  setMotorAnalysis: (motorAnalysis) => set({ motorAnalysis }),
-  setRecoveryPrediction: (recoveryPrediction) => set({ recoveryPrediction }),
+  setMonteCarloResult: async (monteCarloResult) => {
+    set({ monteCarloResult });
+    
+    // Auto-save Monte Carlo results to database
+    if (monteCarloResult && get().isDatabaseConnected) {
+      const state = get();
+      try {
+        const savedRocket = await saveRocketToDb(state.rocket);
+        if (savedRocket) {
+          await AnalysisService.saveAnalysisResult(
+            savedRocket.id,
+            'monte_carlo',
+            {
+              nominal: monteCarloResult.nominal,
+              statistics: monteCarloResult.statistics,
+              iterations: monteCarloResult.iterations,
+              landingDispersion: monteCarloResult.landingDispersion,
+              analysisType: 'monte_carlo_uncertainty',
+              iterationCount: monteCarloResult.iterations?.length || 0
+            },
+            {
+              environment: state.environment,
+              launchParameters: state.launchParameters
+            }
+          );
+          console.log('✅ Monte Carlo results saved to database');
+        }
+      } catch (error) {
+        console.warn('Failed to save Monte Carlo results:', error);
+      }
+    }
+  },
+  
+  setStabilityAnalysis: async (stabilityAnalysis) => {
+    set({ stabilityAnalysis });
+    
+    // Auto-save Stability Analysis to database
+    if (stabilityAnalysis && get().isDatabaseConnected) {
+      const state = get();
+      try {
+        const savedRocket = await saveRocketToDb(state.rocket);
+        if (savedRocket) {
+          await AnalysisService.saveAnalysisResult(
+            savedRocket.id,
+            'stability',
+            {
+              staticMargin: stabilityAnalysis.staticMargin,
+              centerOfMass: stabilityAnalysis.center_of_mass,
+              centerOfPressure: stabilityAnalysis.center_of_pressure,
+              rating: stabilityAnalysis.rating,
+              recommendations: stabilityAnalysis.recommendations,
+              analysisType: 'static_stability',
+              stabilityRating: stabilityAnalysis.stability_rating
+            },
+            {
+              rocketConfiguration: {
+                noseCone: state.rocket.nose_cone,
+                bodyTubes: state.rocket.body_tubes,
+                fins: state.rocket.fins
+              }
+            }
+          );
+          console.log('✅ Stability analysis saved to database');
+        }
+      } catch (error) {
+        console.warn('Failed to save stability analysis:', error);
+      }
+    }
+  },
+  
+  setMotorAnalysis: async (motorAnalysis) => {
+    set({ motorAnalysis });
+    
+    // Auto-save Motor Analysis to database
+    if (motorAnalysis && get().isDatabaseConnected) {
+      const state = get();
+      try {
+        const savedRocket = await saveRocketToDb(state.rocket);
+        if (savedRocket) {
+          await AnalysisService.saveAnalysisResult(
+            savedRocket.id,
+            'motor',
+            {
+              totalImpulse: motorAnalysis.totalImpulse,
+              averageThrust: motorAnalysis.averageThrust,
+              burnTime: motorAnalysis.burnTime,
+              specificImpulse: motorAnalysis.specificImpulse,
+              thrustToWeight: motorAnalysis.thrustToWeight,
+              impulseClass: motorAnalysis.impulseClass,
+              analysisType: 'motor_performance',
+              recommendations: motorAnalysis.recommendations
+            },
+            {
+              motorConfiguration: state.rocket.motor
+            }
+          );
+          console.log('✅ Motor analysis saved to database');
+        }
+      } catch (error) {
+        console.warn('Failed to save motor analysis:', error);
+      }
+    }
+  },
+  
+  setRecoveryPrediction: async (recoveryPrediction) => {
+    set({ recoveryPrediction });
+    
+    // Auto-save Recovery Prediction to database
+    if (recoveryPrediction && get().isDatabaseConnected) {
+      const state = get();
+      try {
+        const savedRocket = await saveRocketToDb(state.rocket);
+        if (savedRocket) {
+          await AnalysisService.saveAnalysisResult(
+            savedRocket.id,
+            'recovery',
+            {
+              driftDistance: recoveryPrediction.driftDistance,
+              landingVelocity: recoveryPrediction.landingVelocity,
+              analysisType: 'recovery_system'
+            },
+            {
+              parachuteConfiguration: state.rocket.parachutes,
+              environment: state.environment,
+              launchParameters: state.launchParameters
+            }
+          );
+          console.log('✅ Recovery prediction saved to database');
+        }
+      } catch (error) {
+        console.warn('Failed to save recovery prediction:', error);
+      }
+    }
+  },
   
   // UI actions
   setSimulating: (isSimulating) => set({ isSimulating }),
@@ -406,7 +570,7 @@ export const useRocket = create<RocketState>()((set, get) => ({
       
       if (projectId) {
         // Use new project-based chat saving
-        await saveChatToDb(
+      await saveChatToDb(
           [{ role, content, agent: actions?.agent }],
           projectId,
           state.rocket.id
@@ -820,10 +984,10 @@ if (typeof window !== 'undefined') {
     
     const delay = 2000; // Wait 2 seconds for auth to settle
     initTimeout = setTimeout(() => {
-      const state = useRocket.getState();
-      if (!state.initializationAttempted) {
+    const state = useRocket.getState();
+    if (!state.initializationAttempted) {
         console.log('🔌 Initializing database after auth settled');
-        state.initializeDatabase();
+      state.initializeDatabase();
       }
       initTimeout = null;
     }, delay);

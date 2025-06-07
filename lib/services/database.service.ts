@@ -46,6 +46,78 @@ import { Rocket, SimulationResult } from '@/types/rocket';
 import { toJson } from '@/lib/database/types';
 import { MATERIALS } from '@/lib/data/materials';
 import { createRocketFromTemplate, TEMPLATES } from '@/lib/data/templates';
+import { cache } from '@/lib/cache';
+
+// Database optimization utilities
+class DatabaseOptimizer {
+  private static queryQueue = new Map<string, Promise<any>>();
+  private static batchQueue = new Map<string, any[]>();
+  private static batchTimeout: NodeJS.Timeout | null = null;
+
+  /**
+   * Debounce identical database queries
+   */
+  static async debouncedQuery<T>(key: string, queryFn: () => Promise<T>): Promise<T> {
+    if (this.queryQueue.has(key)) {
+      return this.queryQueue.get(key);
+    }
+
+    const promise = queryFn();
+    this.queryQueue.set(key, promise);
+
+    // Clean up after query completes
+    promise.finally(() => {
+      this.queryQueue.delete(key);
+    });
+
+    return promise;
+  }
+
+  /**
+   * Batch multiple operations
+   */
+  static async addToBatch(operation: string, data: any): Promise<void> {
+    if (!this.batchQueue.has(operation)) {
+      this.batchQueue.set(operation, []);
+    }
+    
+    this.batchQueue.get(operation)!.push(data);
+
+    // Process batch after 100ms of inactivity
+    if (this.batchTimeout) {
+      clearTimeout(this.batchTimeout);
+    }
+
+    this.batchTimeout = setTimeout(() => {
+      this.processBatches();
+    }, 100);
+  }
+
+  private static async processBatches(): Promise<void> {
+    const batches = new Map(this.batchQueue);
+    this.batchQueue.clear();
+
+    for (const [operation, items] of Array.from(batches.entries())) {
+      try {
+        await this.executeBatch(operation, items);
+      } catch (error) {
+        console.error(`Batch operation ${operation} failed:`, error);
+      }
+    }
+  }
+
+  private static async executeBatch(operation: string, items: any[]): Promise<void> {
+    switch (operation) {
+      case 'save_performance_metrics':
+        await supabase.from('performance_metrics').insert(items);
+        break;
+      case 'save_analysis_results':
+        await supabase.from('analysis_results').insert(items);
+        break;
+      // Add more batch operations as needed
+    }
+  }
+}
 
 /**
  * Database service for component-based rocket architecture
@@ -253,29 +325,31 @@ export class DatabaseService {
   }
 
   /**
-   * Load user rockets from database
+   * Load user rockets from database with optimization
    */
   async loadUserRockets(): Promise<Rocket[]> {
-    try {
-      const user = await getCurrentUser();
-      if (!user) return [];
+    return DatabaseOptimizer.debouncedQuery('user-rockets', async () => {
+      try {
+        const user = await getCurrentUser();
+        if (!user) return [];
 
-      const { data, error } = await supabase
-        .from('rockets')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('updated_at', { ascending: false });
+        const { data, error } = await supabase
+          .from('rockets')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('updated_at', { ascending: false });
 
-      if (error) {
-        console.error('Error loading rockets:', error);
+        if (error) {
+          console.error('Error loading rockets:', error);
+          return [];
+        }
+
+        return (data || []).map(this.convertRocketFromDb);
+      } catch (error) {
+        console.error('Database load failed:', error);
         return [];
       }
-
-      return (data || []).map(this.convertRocketFromDb);
-    } catch (error) {
-      console.error('Database load failed:', error);
-      return [];
-    }
+    });
   }
 
   /**
@@ -942,7 +1016,7 @@ export class DatabaseService {
           p_user_id: user.id,
           p_rocket_name: rocket.name,
           p_description: description || 'Version created',
-          p_parts: toJson(rocketData.parts),
+          p_parts: rocketData.parts,
           p_motor_id: rocketData.motor_id,
           p_drag_coefficient: rocketData.drag_coefficient,
           p_units: rocketData.units,
@@ -1040,7 +1114,7 @@ export class DatabaseService {
         version_number: nextVersion,
         name: `${rocket.name} v${nextVersion}`,
         description: description || `Version ${nextVersion}`,
-        parts: toJson(rocketData.parts),
+        parts: rocketData.parts,
         motor_id: rocketData.motor_id,
         drag_coefficient: rocketData.drag_coefficient,
         units: rocketData.units,
@@ -1181,54 +1255,57 @@ export class DatabaseService {
   }
 
   async getUserProjects(limit: number = 20, offset: number = 0): Promise<{ projects: DbProject[], totalCount: number }> {
-    try {
-      console.log(`🔍 getUserProjects: Starting to fetch user projects (limit: ${limit}, offset: ${offset})...`);
-      const user = await getCurrentUser();
-      console.log('🔍 getUserProjects: Current user:', user ? user.id : 'null');
-      if (!user) {
-        console.log('🔍 getUserProjects: No user found, returning empty array');
+    const cacheKey = `user-projects-${limit}-${offset}`;
+    return DatabaseOptimizer.debouncedQuery(cacheKey, async () => {
+      try {
+        console.log(`🔍 getUserProjects: Starting to fetch user projects (limit: ${limit}, offset: ${offset})...`);
+        const user = await getCurrentUser();
+        console.log('🔍 getUserProjects: Current user:', user ? user.id : 'null');
+        if (!user) {
+          console.log('🔍 getUserProjects: No user found, returning empty array');
+          return { projects: [], totalCount: 0 };
+        }
+
+        console.log('🔍 getUserProjects: Querying project_summary table...');
+        
+        // First get the total count
+        const { count, error: countError } = await supabase
+          .from('project_summary')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id);
+
+        if (countError) {
+          console.error('🔍 getUserProjects: Count query error:', countError);
+          throw countError;
+        }
+
+        // Then get the paginated data
+        const { data, error } = await supabase
+          .from('project_summary')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('updated_at', { ascending: false })
+          .range(offset, offset + limit - 1);
+
+        console.log('🔍 getUserProjects: Query result:', { 
+          dataCount: data?.length || 0, 
+          totalCount: count || 0, 
+          error 
+        });
+        
+        if (error) {
+          console.error('🔍 getUserProjects: Data query error:', error);
+          throw error;
+        }
+
+        const projects = data || [];
+        console.log('🔍 getUserProjects: Returning projects:', projects.length);
+        return { projects, totalCount: count || 0 };
+      } catch (error) {
+        console.error('❌ getUserProjects: Error fetching projects:', error);
         return { projects: [], totalCount: 0 };
       }
-
-      console.log('🔍 getUserProjects: Querying project_summary table...');
-      
-      // First get the total count
-      const { count, error: countError } = await supabase
-        .from('project_summary')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', user.id);
-
-      if (countError) {
-        console.error('🔍 getUserProjects: Count query error:', countError);
-        throw countError;
-      }
-
-      // Then get the paginated data
-      const { data, error } = await supabase
-        .from('project_summary')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('updated_at', { ascending: false })
-        .range(offset, offset + limit - 1);
-
-      console.log('🔍 getUserProjects: Query result:', { 
-        dataCount: data?.length || 0, 
-        totalCount: count || 0, 
-        error 
-      });
-      
-      if (error) {
-        console.error('🔍 getUserProjects: Data query error:', error);
-        throw error;
-      }
-
-      const projects = data || [];
-      console.log('🔍 getUserProjects: Returning projects:', projects.length);
-      return { projects, totalCount: count || 0 };
-    } catch (error) {
-      console.error('❌ getUserProjects: Error fetching projects:', error);
-      return { projects: [], totalCount: 0 };
-    }
+    });
   }
 
   async updateProject(project: Partial<DbProject> & { id: string }): Promise<DbProject | null> {
