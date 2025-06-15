@@ -96,6 +96,198 @@ body {
 }
 
 @layer components {
+  /* Spectacular Space Landing Page Effects */
+  /* Cosmic glow animation for the entire canvas */
+  .cosmic-glow {
+    position: relative;
+    overflow: hidden;
+  }
+  
+  .cosmic-glow::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: radial-gradient(
+      circle at center,
+      rgba(0, 150, 255, 0.1) 0%,
+      rgba(100, 0, 255, 0.05) 25%,
+      rgba(255, 100, 0, 0.03) 50%,
+      transparent 70%
+    );
+    animation: cosmic-pulse 8s ease-in-out infinite alternate;
+    pointer-events: none;
+    z-index: 1;
+  }
+  
+  @keyframes cosmic-pulse {
+    0% { 
+      opacity: 0.3; 
+      transform: scale(1) rotate(0deg);
+    }
+    100% { 
+      opacity: 0.8; 
+      transform: scale(1.1) rotate(360deg);
+    }
+  }
+
+  /* Enhanced text glow effects */
+  .space-text-glow {
+    text-shadow: 
+      0 0 10px rgba(255, 255, 255, 0.8),
+      0 0 20px rgba(255, 255, 255, 0.6),
+      0 0 30px rgba(255, 255, 255, 0.4),
+      0 0 40px rgba(135, 206, 250, 0.3),
+      0 0 50px rgba(135, 206, 250, 0.2);
+    animation: text-glow-pulse 3s ease-in-out infinite alternate;
+  }
+  
+  @keyframes text-glow-pulse {
+    0% { 
+      text-shadow: 
+        0 0 10px rgba(255, 255, 255, 0.6),
+        0 0 20px rgba(255, 255, 255, 0.4),
+        0 0 30px rgba(255, 255, 255, 0.3),
+        0 0 40px rgba(135, 206, 250, 0.2),
+        0 0 50px rgba(135, 206, 250, 0.1);
+    }
+    100% { 
+      text-shadow: 
+        0 0 15px rgba(255, 255, 255, 1),
+        0 0 25px rgba(255, 255, 255, 0.8),
+        0 0 35px rgba(255, 255, 255, 0.6),
+        0 0 45px rgba(135, 206, 250, 0.4),
+        0 0 55px rgba(135, 206, 250, 0.3);
+    }
+  }
+
+  /* Spectacular button glow */
+  .cosmic-button {
+    position: relative;
+    overflow: hidden;
+    box-shadow: 
+      0 0 20px rgba(255, 255, 255, 0.3),
+      0 0 40px rgba(135, 206, 250, 0.2),
+      inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    transition: all 0.3s ease;
+  }
+  
+  .cosmic-button::before {
+    content: '';
+    position: absolute;
+    top: -2px;
+    left: -2px;
+    right: -2px;
+    bottom: -2px;
+    background: linear-gradient(45deg, 
+      transparent, 
+      rgba(255, 255, 255, 0.1), 
+      transparent, 
+      rgba(135, 206, 250, 0.1),
+      transparent
+    );
+    border-radius: inherit;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    pointer-events: none;
+    z-index: -1;
+  }
+  
+  .cosmic-button:hover {
+    box-shadow: 
+      0 0 30px rgba(255, 255, 255, 0.6),
+      0 0 60px rgba(135, 206, 250, 0.4),
+      0 0 90px rgba(255, 255, 255, 0.2),
+      inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    transform: scale(1.05);
+  }
+  
+  .cosmic-button:hover::before {
+    opacity: 1;
+  }
+
+  /* Content overlay backdrop with enhanced glow */
+  .space-backdrop {
+    background: linear-gradient(135deg, 
+      rgba(0, 0, 0, 0.4) 0%,
+      rgba(20, 30, 60, 0.3) 25%,
+      rgba(0, 0, 0, 0.3) 50%,
+      rgba(30, 20, 60, 0.3) 75%,
+      rgba(0, 0, 0, 0.2) 100%
+    );
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 
+      0 8px 32px rgba(0, 0, 0, 0.3),
+      inset 0 1px 0 rgba(255, 255, 255, 0.05),
+      0 0 60px rgba(135, 206, 250, 0.1);
+    animation: backdrop-glow 6s ease-in-out infinite alternate;
+  }
+  
+  @keyframes backdrop-glow {
+    0% { 
+      box-shadow: 
+        0 8px 32px rgba(0, 0, 0, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05),
+        0 0 40px rgba(135, 206, 250, 0.1);
+    }
+    100% { 
+      box-shadow: 
+        0 12px 48px rgba(0, 0, 0, 0.4),
+        inset 0 1px 0 rgba(255, 255, 255, 0.08),
+        0 0 80px rgba(135, 206, 250, 0.2);
+    }
+  }
+
+  /* Rocket trail glow effect */
+  .rocket-trail {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    background: radial-gradient(
+      ellipse 50% 80% at center bottom,
+      rgba(255, 100, 0, 0.3) 0%,
+      rgba(255, 150, 0, 0.2) 20%,
+      rgba(255, 200, 100, 0.1) 40%,
+      transparent 70%
+    );
+    animation: rocket-exhaust 0.5s ease-in-out infinite alternate;
+    pointer-events: none;
+  }
+  
+  @keyframes rocket-exhaust {
+    0% { opacity: 0.6; transform: scale(1); }
+    100% { opacity: 1; transform: scale(1.1); }
+  }
+
+  /* Enhanced star field effect */
+  .star-field {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: 
+      radial-gradient(2px 2px at 20px 30px, rgba(255, 255, 255, 0.8), transparent),
+      radial-gradient(2px 2px at 40px 70px, rgba(255, 255, 255, 0.6), transparent),
+      radial-gradient(1px 1px at 90px 40px, rgba(255, 255, 255, 0.7), transparent),
+      radial-gradient(1px 1px at 130px 80px, rgba(255, 255, 255, 0.5), transparent),
+      radial-gradient(2px 2px at 160px 30px, rgba(255, 255, 255, 0.9), transparent);
+    background-repeat: repeat;
+    background-size: 200px 100px;
+    animation: star-twinkle 4s linear infinite;
+    pointer-events: none;
+    z-index: 0;
+  }
+  
+  @keyframes star-twinkle {
+    0%, 100% { opacity: 0.8; }
+    50% { opacity: 1; }
+  }
+
   /* Glass morphism card styling to match the design */
   .glass-strong {
     background: rgba(20, 25, 35, 0.85);

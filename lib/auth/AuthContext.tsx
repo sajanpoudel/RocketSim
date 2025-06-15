@@ -48,10 +48,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const getInitialSession = async () => {
       try {
         // Create timeout with reference for cleanup
-        authTimeoutRef = setTimeout(() => {
-          throw new Error('Auth initialization timeout');
-        }, 5000);
-        
         const timeoutPromise = new Promise((_, reject) => {
           authTimeoutRef = setTimeout(() => reject(new Error('Auth initialization timeout')), 5000);
         });
@@ -84,7 +80,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           }
         }
       } catch (error) {
-        console.error('Session initialization error:', error);
+        console.warn('Session initialization error (non-blocking):', error);
         // Clear timeout on error
         if (authTimeoutRef) {
           clearTimeout(authTimeoutRef);
@@ -307,7 +303,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: `${window.location.origin}/`
+          redirectTo: `${window.location.origin}/simulator`
         }
       });
 

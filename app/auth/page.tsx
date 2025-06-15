@@ -19,7 +19,7 @@ export default function AuthPage() {
   // Redirect if already authenticated
   useEffect(() => {
     if (user && !loading) {
-      router.push('/');
+      router.push('/simulator');
     }
   }, [user, loading, router]);
 

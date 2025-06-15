@@ -1,419 +1,68 @@
 "use client"
 
-import { useState, useEffect, useMemo } from 'react'
-import dynamic from 'next/dynamic'
-import { motion } from 'framer-motion'
-import ProtectedRoute from '@/components/auth/ProtectedRoute'
-import { useAuth } from '@/lib/auth/AuthContext'
-import NotificationSystem from '@/components/ui/NotificationSystem'
+import { Suspense, useEffect } from "react"
+import { useRouter } from "next/navigation"
+import { Canvas } from "@react-three/fiber"
+import { useAuth } from "@/lib/auth/AuthContext"
+import { UltraRealisticSpace } from "@/components/landingpage/ultra-realistic-space"
+import { ContentOverlay } from "@/components/landingpage/content-overlay"
+import { LoadingScreen } from "@/components/landingpage/loading-screen"
 
-// Dynamically import panels to reduce initial load time
-const LeftPanel = dynamic(() => import('@/components/panels/LeftPanel'))
-const MiddlePanel = dynamic(() => import('@/components/panels/MiddlePanel'))
-const RightPanel = dynamic(() => import('@/components/panels/RightPanel'))
+export default function Home() {
+  const { user, loading } = useAuth()
+  const router = useRouter()
 
-export default function RocketSim() {
-  const { user, userSession } = useAuth();
-  
-  // Panel sizing state (responsive defaults based on screen size)
-  const [leftPanelWidth, setLeftPanelWidth] = useState(20)
-  const [rightPanelWidth, setRightPanelWidth] = useState(25)
-  
-  // Panel collapse state
-  const [isLeftPanelCollapsed, setIsLeftPanelCollapsed] = useState(false)
-  const [isRightPanelCollapsed, setIsRightPanelCollapsed] = useState(false)
-  
-  // Window size state for responsive calculations
-  const [windowSize, setWindowSize] = useState({ width: 0, height: 0 });
-  
-  // Responsive width calculations
-  const getResponsiveConstraints = () => {
-    const screenWidth = windowSize.width || (typeof window !== 'undefined' ? window.innerWidth : 1024);
-    if (screenWidth < 768) { // Mobile
-      return { minLeft: 280, maxLeft: 320, minRight: 280, maxRight: 320 };
-    } else if (screenWidth < 1024) { // Tablet
-      return { minLeft: 300, maxLeft: 400, minRight: 350, maxRight: 400 };
-    } else { // Desktop
-      return { minLeft: 320, maxLeft: 480, minRight: 400, maxRight: 550 };
-    }
-  };
-  
-  // Calculate middle panel width based on collapsed states and fixed panel sizes
-  const middlePanelWidth = useMemo(() => {
-    const constraints = getResponsiveConstraints();
-    const leftWidth = isLeftPanelCollapsed ? 64 : constraints.minLeft; // 64px when collapsed, minLeft when expanded
-    const rightWidth = isRightPanelCollapsed ? 60 : constraints.minRight; // 60px when collapsed, minRight when expanded
-    
-    const screenWidth = windowSize.width || (typeof window !== 'undefined' ? window.innerWidth : 1024);
-    const availableWidth = screenWidth - leftWidth - rightWidth;
-    return Math.max(300, availableWidth); // Ensure minimum 300px for middle panel
-  }, [isLeftPanelCollapsed, isRightPanelCollapsed, windowSize]);
-  
-  // Handle resize of panels with responsive constraints
-  const handleLeftDividerDrag = (delta: number) => {
-    const constraints = getResponsiveConstraints();
-    const currentWidthPx = isLeftPanelCollapsed ? 64 : constraints.minLeft;
-    const deltaPercent = (delta / (windowSize.width || 1024)) * 100;
-    const newWidthPx = Math.max(constraints.minLeft, Math.min(constraints.maxLeft, currentWidthPx + delta));
-    
-    // Update the actual left panel width constraint
-    setLeftPanelWidth(newWidthPx);
-  }
-  
-  const handleRightDividerDrag = (delta: number) => {
-    const constraints = getResponsiveConstraints();
-    const currentWidthPx = isRightPanelCollapsed ? 60 : constraints.minRight;
-    const newWidthPx = Math.max(constraints.minRight, Math.min(constraints.maxRight, currentWidthPx - delta));
-    
-    // Update the actual right panel width constraint  
-    setRightPanelWidth(newWidthPx);
-  }
-  
-  // Implement divider drag functionality
-  const startLeftDividerDrag = (e: React.MouseEvent) => {
-    e.preventDefault();
-    
-    const startX = e.clientX;
-    
-    const handleMouseMove = (moveEvent: MouseEvent) => {
-      const deltaX = moveEvent.clientX - startX;
-      handleLeftDividerDrag(deltaX);
-    };
-    
-    const handleMouseUp = () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-    };
-    
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-  };
-  
-  const startRightDividerDrag = (e: React.MouseEvent) => {
-    e.preventDefault();
-    
-    const startX = e.clientX;
-    
-    const handleMouseMove = (moveEvent: MouseEvent) => {
-      const deltaX = moveEvent.clientX - startX;
-      handleRightDividerDrag(deltaX);
-    };
-    
-    const handleMouseUp = () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-    };
-    
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-  };
-  
-  // Toggle panel functions with keyboard shortcut support
-  const toggleLeftPanel = () => setIsLeftPanelCollapsed(!isLeftPanelCollapsed);
-  const toggleRightPanel = () => setIsRightPanelCollapsed(!isRightPanelCollapsed);
-  
-  // Handle keyboard shortcuts
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.metaKey || e.ctrlKey) {
-      switch(e.key) {
-        case '1':
-          toggleLeftPanel();
-          break;
-        case '2':
-          // Toggle both panels to focus on middle
-          const allCollapsed = isLeftPanelCollapsed && isRightPanelCollapsed;
-          const allExpanded = !isLeftPanelCollapsed && !isRightPanelCollapsed;
-          
-          if (allCollapsed || allExpanded) {
-            // Toggle between all collapsed and all expanded
-            setIsLeftPanelCollapsed(!allCollapsed);
-            setIsRightPanelCollapsed(!allCollapsed);
-          } else {
-            // If in mixed state, collapse all to focus on middle
-            setIsLeftPanelCollapsed(true);
-            setIsRightPanelCollapsed(true);
-          }
-          break;
-        case '3':
-          toggleRightPanel();
-          break;
-        case 'f':
-          if (e.shiftKey) {
-            // Toggle fullscreen with Cmd+Shift+F
-            const allCollapsed = isLeftPanelCollapsed && isRightPanelCollapsed;
-            setIsLeftPanelCollapsed(!allCollapsed);
-            setIsRightPanelCollapsed(!allCollapsed);
-          }
-          break;
-        default:
-          break;
-      }
-    } else if (e.key === 'F11') {
-      // Toggle fullscreen with F11
-      e.preventDefault();
-      const allCollapsed = isLeftPanelCollapsed && isRightPanelCollapsed;
-      setIsLeftPanelCollapsed(!allCollapsed);
-      setIsRightPanelCollapsed(!allCollapsed);
-    }
-  }
-
-  // Toggle full screen
-  const toggleFullScreen = () => {
-    const allCollapsed = isLeftPanelCollapsed && isRightPanelCollapsed;
-    setIsLeftPanelCollapsed(!allCollapsed);
-    setIsRightPanelCollapsed(!allCollapsed);
-  }
-
-  // Add tooltips for first-time users
-  const [showTooltips, setShowTooltips] = useState(false);
-  
-  const [loadChatSessionId, setLoadChatSessionId] = useState<string | null>(null); // Add state for loading specific chat sessions
-  const [currentProjectId, setCurrentProjectId] = useState<string | null>(null); // Add state for project-specific conversations
-
-  // Handle window resize for responsive layout
+  // Redirect authenticated users to simulator
   useEffect(() => {
-    const handleResize = () => {
-      setWindowSize({
-        width: window.innerWidth,
-        height: window.innerHeight
-      });
-    };
+    if (user && !loading) {
+      router.push('/simulator')
+    }
+  }, [user, loading, router])
 
-    // Set initial size
-    handleResize();
-
-    // Add resize listener
-    window.addEventListener('resize', handleResize);
-
-    // Cleanup
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
-  // Handle chat session loading
-  const handleChatSessionClick = (sessionId: string) => {
-    setLoadChatSessionId(sessionId);
-    setCurrentProjectId(null); // Clear project-specific mode when loading a specific session
-  };
-
-  const handleChatSessionLoad = (sessionId: string | null) => {
-    setLoadChatSessionId(sessionId);
-  };
-
-  // Handle project clicks - load project-specific conversations
-  const handleProjectClick = (projectId: string) => {
-    setCurrentProjectId(projectId);
-    setLoadChatSessionId(null); // Clear session-specific mode when loading project conversations
-  };
-
-  useEffect(() => {
-    // Hide tooltips after 5 seconds
-    const timer = setTimeout(() => {
-      setShowTooltips(false);
-    }, 5000);
-    
-    return () => clearTimeout(timer);
-  }, []);
+  // Show loading while checking auth
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-black flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-white">Loading...</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
-    <ProtectedRoute>
-      <main 
-        className="flex h-screen w-screen overflow-hidden bg-black bg-opacity-90"
-        onKeyDown={handleKeyDown}
-        tabIndex={0}
-      >
-        {/* Left Panel */}
-        {!isLeftPanelCollapsed && (
-          <motion.div
-            className="h-full relative flex-shrink-0"
-            initial={{ width: getResponsiveConstraints().minLeft }}
-            animate={{ width: leftPanelWidth > 64 ? leftPanelWidth : getResponsiveConstraints().minLeft }}
-            transition={{ duration: 0.3, ease: "easeInOut" }}
-          >
-            <LeftPanel 
-              isCollapsed={isLeftPanelCollapsed} 
-              onCollapse={toggleLeftPanel}
-              onProjectClick={handleProjectClick}
-              width={leftPanelWidth > 64 ? leftPanelWidth : getResponsiveConstraints().minLeft}
-            />
-            
-            {/* Tooltip for left panel */}
-            {showTooltips && (
-              <div className="absolute top-16 right-4 bg-black bg-opacity-80 text-white text-xs p-2 rounded shadow-lg pointer-events-none">
-                Cmd+1 to toggle
-              </div>
-            )}
-          </motion.div>
-        )}
-        
-        {/* Collapsed Left Panel - Show minimal expand button */}
-        {isLeftPanelCollapsed && (
-          <motion.div
-            className="h-full relative flex-shrink-0"
-            initial={{ width: 64 }}
-            animate={{ width: 64 }}
-            transition={{ duration: 0.3, ease: "easeInOut" }}
-          >
-            <LeftPanel 
-              isCollapsed={isLeftPanelCollapsed} 
-              onCollapse={toggleLeftPanel}
-              onProjectClick={handleProjectClick}
-              width={64}
-            />
-          </motion.div>
-        )}
-        
-        {/* Left Panel Divider - only show when not collapsed */}
-        {!isLeftPanelCollapsed && (
-          <div 
-            className="panel-divider-v relative z-10 cursor-col-resize flex-shrink-0 w-1"
-            onMouseDown={startLeftDividerDrag}
-          >
-            <div className="absolute inset-0 w-3 -translate-x-1/2 hover:bg-cyan-500 hover:bg-opacity-20" />
-          </div>
-        )}
-        
-        {/* Middle Panel - 3D Visualization */}
-        <motion.div
-          className="h-full relative flex-1 min-w-0"
-          style={{ minWidth: 300 }}
-        >
-          <MiddlePanel 
-            isMobile={windowSize.width < 768} 
-            isSmallDesktop={middlePanelWidth < 500} 
-            isFullScreen={isLeftPanelCollapsed && isRightPanelCollapsed}
-          />
-          
-          {/* Mobile Panel Toggle Buttons */}
-          {windowSize.width < 768 && (
-            <>
-              {/* Left Panel Toggle - show when collapsed */}
-              {isLeftPanelCollapsed && (
-                <motion.button
-                  className="absolute top-4 left-4 z-[100] p-3 rounded-full bg-black/80 backdrop-blur-sm text-white shadow-lg hover:bg-black/90 transition-all border border-white/20"
-                  onClick={toggleLeftPanel}
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -20 }}
-                  transition={{ duration: 0.2 }}
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M3 12h18"></path>
-                    <path d="M3 6h18"></path>
-                    <path d="M3 18h18"></path>
-                  </svg>
-                </motion.button>
-              )}
-
-              {/* Right Panel Toggle - show when collapsed - Black & White theme */}
-              {isRightPanelCollapsed && (
-                <motion.button
-                  className="absolute top-4 right-4 z-[100] p-4 rounded-full bg-black/80 backdrop-blur-sm text-white shadow-lg hover:bg-black/90 transition-all border border-white/20 touch-manipulation"
-                  onClick={toggleRightPanel}
-                  initial={{ opacity: 0, scale: 0.8 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.8 }}
-                  transition={{ duration: 0.3, type: "spring", stiffness: 300, damping: 25 }}
-                  style={{ minWidth: '56px', minHeight: '56px' }}
-                >
-                  <div className="flex flex-col items-center justify-center">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
-                    </svg>
-                    <div className="w-1 h-1 bg-white rounded-full animate-pulse mt-1"></div>
-                  </div>
-                </motion.button>
-              )}
-            </>
-          )}
-          
-          {/* Additional prominent mobile chat FAB - Black & White theme */}
-          {windowSize.width < 768 && isRightPanelCollapsed && (
-            <motion.button
-              className="absolute bottom-24 right-4 z-[100] p-4 rounded-full bg-white/10 backdrop-blur-xl text-white shadow-xl hover:bg-white/20 transition-all border border-white/30 touch-manipulation"
-              onClick={toggleRightPanel}
-              initial={{ opacity: 0, y: 20, scale: 0.8 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 20, scale: 0.8 }}
-              transition={{ duration: 0.4, type: "spring", stiffness: 300, damping: 25, delay: 0.1 }}
-              style={{ minWidth: '64px', minHeight: '64px' }}
-            >
-              <div className="flex flex-col items-center justify-center">
-                <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
-                </svg>
-                <div className="text-xs font-medium mt-1">AI</div>
-              </div>
-            </motion.button>
-          )}
-          
-          {/* Tooltip for middle panel full screen */}
-          {showTooltips && (
-            <div className="absolute top-16 left-1/2 transform -translate-x-1/2 bg-black bg-opacity-80 text-white text-xs p-2 rounded shadow-lg pointer-events-none">
-              Cmd+2 to toggle fullscreen
-            </div>
-          )}
-        </motion.div>
-        
-        {/* Right Panel Divider - only show when not collapsed */}
-        {!isRightPanelCollapsed && (
-          <div 
-            className="panel-divider-v relative z-10 cursor-col-resize flex-shrink-0 w-1"
-            onMouseDown={startRightDividerDrag}
-          >
-            <div className="absolute inset-0 w-3 -translate-x-1/2 hover:bg-cyan-500 hover:bg-opacity-20" />
-          </div>
-        )}
-        
-        {/* Right Panel - Chat & Metrics */}
-        <motion.div
-          className="h-full relative flex-shrink-0"
-          initial={{ width: isRightPanelCollapsed ? 60 : getResponsiveConstraints().minRight }}
-          animate={{ 
-            width: isRightPanelCollapsed ? 60 : (rightPanelWidth > 60 ? rightPanelWidth : getResponsiveConstraints().minRight)
+    <div className="relative w-full h-[600vh] bg-black overflow-hidden cosmic-glow">
+      {/* Enhanced star field background */}
+      <div className="star-field"></div>
+      
+      {/* Ultra-realistic 3D Space Environment with cosmic glow */}
+      <div className="fixed inset-0 z-0">
+        <Canvas
+          camera={{
+            fov: 45,
+            near: 0.1,
+            far: 100000,
+            position: [0, 10, 30],
           }}
-          transition={{ duration: 0.3, ease: "easeInOut" }}
+          gl={{
+            antialias: true,
+            powerPreference: "high-performance",
+            alpha: false,
+            stencil: false,
+            depth: true,
+            logarithmicDepthBuffer: true,
+          }}
+          dpr={[1, 2]}
         >
-          <RightPanel 
-            onCollapse={toggleRightPanel}
-            isCollapsed={isRightPanelCollapsed}
-            loadSessionId={loadChatSessionId}
-            onChatSessionLoad={handleChatSessionLoad}
-            projectId={currentProjectId}
-          />
-          
-          {/* Tooltip for right panel collapse */}
-          {showTooltips && !isRightPanelCollapsed && (
-            <div className="absolute top-16 left-6 bg-black bg-opacity-80 text-white text-xs p-2 rounded shadow-lg pointer-events-none">
-              Cmd+3 to toggle
-            </div>
-          )}
-        </motion.div>
-        
-        {/* Floating exit fullscreen button - only show when both panels collapsed */}
-        {isLeftPanelCollapsed && isRightPanelCollapsed && (
-          <motion.button
-            className="absolute bottom-4 left-1/2 transform -translate-x-1/2 z-50 px-4 py-2 rounded-full 
-                       bg-black bg-opacity-40 backdrop-blur-sm text-white text-sm flex items-center space-x-2
-                       border border-white border-opacity-20 shadow-lg hover:bg-opacity-60 transition-all"
-            onClick={toggleFullScreen}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 20 }}
-            transition={{ duration: 0.2 }}
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M8 3v3a2 2 0 0 1-2 2H3"></path>
-              <path d="M21 8h-3a2 2 0 0 1-2-2V3"></path>
-              <path d="M3 16h3a2 2 0 0 1 2 2v3"></path>
-              <path d="M16 21v-3a2 2 0 0 1 2-2h3"></path>
-            </svg>
-            <span>Exit Fullscreen</span>
-          </motion.button>
-        )}
-        
-        {/* Notification System */}
-        <NotificationSystem />
-      </main>
-    </ProtectedRoute>
+          <Suspense fallback={<LoadingScreen />}>
+            <UltraRealisticSpace />
+          </Suspense>
+        </Canvas>
+      </div>
+
+      {/* Content Overlay */}
+      <ContentOverlay />
+    </div>
   )
 } 
