@@ -1848,20 +1848,54 @@ class MonteCarloSimulation:
         
         # Handle RocketPy's actual data structure
         try:
-            if hasattr(mc_runner, 'processed_results') and mc_runner.processed_results:
+            # PRIORITY: Use raw data to calculate proper statistics first
+            if hasattr(mc_runner, 'results') and mc_runner.results:
+                import numpy as np
+                
+                # Calculate real statistics from actual simulation data
+                for key, values in mc_runner.results.items():
+                    if isinstance(values, list) and len(values) > 0:
+                        values_array = np.array(values)
+                        # Remove any invalid values (NaN, inf)
+                        values_array = values_array[np.isfinite(values_array)]
+                        
+                        if len(values_array) > 0:
+                            stats[key] = MonteCarloStatistics(
+                                mean=float(np.mean(values_array)),
+                                std=float(np.std(values_array)),
+                                min=float(np.min(values_array)),  # ✅ REAL minimum from data
+                                max=float(np.max(values_array)),  # ✅ REAL maximum from data
+                                percentiles={
+                                    "5": float(np.percentile(values_array, 5)),
+                                    "25": float(np.percentile(values_array, 25)),
+                                    "50": float(np.percentile(values_array, 50)),
+                                    "75": float(np.percentile(values_array, 75)),
+                                    "95": float(np.percentile(values_array, 95))
+                                }
+                            )
+            
+            # FALLBACK: Only use processed_results if raw data unavailable
+            if not stats and hasattr(mc_runner, 'processed_results') and mc_runner.processed_results:
                 for key, data in mc_runner.processed_results.items():
                     # Check if data is a tuple (mean, std_dev) or a dict
                     if isinstance(data, tuple) and len(data) >= 2:
                         mean_val = float(data[0])
                         std_val = float(data[1])
+                        
+                        # ✅ FIXED: Use reasonable bounds instead of fake negative values
+                        # For physical quantities, ensure minimum is never negative
+                        physical_quantities = ['apogee', 'out_of_rail_velocity', 'initial_stability_margin', 'apogee_time']
+                        min_val = max(0.0, mean_val - 2*std_val) if key in physical_quantities else mean_val - 2*std_val
+                        max_val = mean_val + 2*std_val
+                        
                         stats[key] = MonteCarloStatistics(
                             mean=mean_val,
                             std=std_val,
-                            min=mean_val - 2*std_val,  # Approximate min/max from std dev
-                            max=mean_val + 2*std_val,
+                            min=min_val,
+                            max=max_val,
                             percentiles={
-                                "5": mean_val - 1.65*std_val,
-                                "25": mean_val - 0.67*std_val,
+                                "5": max(0.0, mean_val - 1.65*std_val) if key in physical_quantities else mean_val - 1.65*std_val,
+                                "25": max(0.0, mean_val - 0.67*std_val) if key in physical_quantities else mean_val - 0.67*std_val,
                                 "50": mean_val,
                                 "75": mean_val + 0.67*std_val,
                                 "95": mean_val + 1.65*std_val
@@ -1877,27 +1911,6 @@ class MonteCarloSimulation:
                             percentiles=data.get('percentiles', {})
                         )
             
-            # If no processed results, create basic stats from raw data
-            if not stats and hasattr(mc_runner, 'results'):
-                # Extract basic statistics from raw results
-                if 'apogee' in mc_runner.results:
-                    apogee_data = mc_runner.results['apogee']
-                    if isinstance(apogee_data, list) and len(apogee_data) > 0:
-                        import numpy as np
-                        apogee_array = np.array(apogee_data)
-                        stats['maxAltitude'] = MonteCarloStatistics(
-                            mean=float(np.mean(apogee_array)),
-                            std=float(np.std(apogee_array)),
-                            min=float(np.min(apogee_array)),
-                            max=float(np.max(apogee_array)),
-                            percentiles={
-                                "5": float(np.percentile(apogee_array, 5)),
-                                "25": float(np.percentile(apogee_array, 25)),
-                                "50": float(np.percentile(apogee_array, 50)),
-                                "75": float(np.percentile(apogee_array, 75)),
-                                "95": float(np.percentile(apogee_array, 95))
-                            }
-                        )
         except Exception as e:
             logger.error(f"Error processing Monte Carlo results: {e}")
             # Re-raise the exception instead of creating fallback statistics  
