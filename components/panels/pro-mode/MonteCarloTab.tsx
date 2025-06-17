@@ -304,34 +304,53 @@ export default function MonteCarloTab() {
     
     if (!altitudeStats || !velocityStats) return 0;
     
+    // Add safety checks for valid numbers
+    if (typeof altitudeStats.mean !== 'number' || typeof altitudeStats.std !== 'number' ||
+        typeof velocityStats.mean !== 'number' || typeof velocityStats.std !== 'number' ||
+        isNaN(altitudeStats.mean) || isNaN(altitudeStats.std) ||
+        isNaN(velocityStats.mean) || isNaN(velocityStats.std) ||
+        altitudeStats.mean <= 0 || velocityStats.mean <= 0) {
+      return 0;
+    }
+    
     // Calculate coefficient of variation for altitude and velocity
-    const altitudeCv = altitudeStats.std / altitudeStats.mean;
-    const velocityCv = velocityStats.std / velocityStats.mean;
+    const altitudeCv = Math.abs(altitudeStats.std) / Math.abs(altitudeStats.mean);
+    const velocityCv = Math.abs(velocityStats.std) / Math.abs(velocityStats.mean);
     
     // Average CV (lower is better)
     const avgCv = (altitudeCv + velocityCv) / 2;
     
-    // More reasonable reliability scale for rockets:
-    // CV < 0.05 (5%) = Excellent (95-100%)
-    // CV < 0.10 (10%) = Very Good (85-95%) 
-    // CV < 0.15 (15%) = Good (70-85%)
-    // CV < 0.25 (25%) = Fair (50-70%)
-    // CV < 0.35 (35%) = Poor (30-50%)
-    // CV >= 0.35 = Very Poor (0-30%)
+    // Debug logging (remove in production)
+    console.log('Reliability Debug:', {
+      altitudeStats: { mean: altitudeStats.mean, std: altitudeStats.std },
+      velocityStats: { mean: velocityStats.mean, std: velocityStats.std },
+      altitudeCv,
+      velocityCv,
+      avgCv
+    });
+    
+    // More realistic reliability scale for Monte Carlo rocket simulations:
+    // For rockets, higher CV is more common due to environmental factors
+    // CV < 0.20 (20%) = Excellent (85-100%) - Very consistent performance
+    // CV < 0.40 (40%) = Very Good (70-85%) - Good consistency  
+    // CV < 0.60 (60%) = Good (55-70%) - Acceptable variation
+    // CV < 0.80 (80%) = Fair (40-55%) - High variation but usable
+    // CV < 1.20 (120%) = Poor (25-40%) - Very high variation
+    // CV >= 1.20 = Very Poor (0-25%) - Extreme variation
     
     let reliability;
-    if (avgCv < 0.05) {
-      reliability = 95 + (0.05 - avgCv) * 100; // 95-100%
-    } else if (avgCv < 0.10) {
-      reliability = 85 + (0.10 - avgCv) * 200; // 85-95%
-    } else if (avgCv < 0.15) {
-      reliability = 70 + (0.15 - avgCv) * 300; // 70-85%
-    } else if (avgCv < 0.25) {
-      reliability = 50 + (0.25 - avgCv) * 200; // 50-70%
-    } else if (avgCv < 0.35) {
-      reliability = 30 + (0.35 - avgCv) * 200; // 30-50%
+    if (avgCv < 0.20) {
+      reliability = 85 + (0.20 - avgCv) * 75; // 85-100%
+    } else if (avgCv < 0.40) {
+      reliability = 70 + (0.40 - avgCv) * 75; // 70-85%
+    } else if (avgCv < 0.60) {
+      reliability = 55 + (0.60 - avgCv) * 75; // 55-70%
+    } else if (avgCv < 0.80) {
+      reliability = 40 + (0.80 - avgCv) * 75; // 40-55%
+    } else if (avgCv < 1.20) {
+      reliability = 25 + (1.20 - avgCv) * 37.5; // 25-40%
     } else {
-      reliability = Math.max(0, 30 - (avgCv - 0.35) * 100); // 0-30%
+      reliability = Math.max(0, 25 - (avgCv - 1.20) * 20.8); // 0-25%
     }
     
     return Math.round(Math.min(100, Math.max(0, reliability)) * 10) / 10;
@@ -344,7 +363,7 @@ export default function MonteCarloTab() {
     if (totalIterations === 0) return 0;
     
     // Count successful iterations based on criteria:
-    // 1. Altitude > 100m (minimum for model rocket)
+    // 1. Altitude > 30m (reasonable minimum for model rocket)
     // 2. Stability margin > 1.0 caliber (if available)
     // 3. No simulation failures
     
@@ -353,13 +372,13 @@ export default function MonteCarloTab() {
     monteCarloResult.iterations.forEach((iteration: any) => {
       let isSuccessful = true;
       
-      // Check minimum altitude
-      if (iteration.maxAltitude && iteration.maxAltitude < 100) {
+      // Check minimum altitude - use the correct property name from RocketPy
+      if (iteration.apogee && iteration.apogee < 30) {
         isSuccessful = false;
       }
       
-      // Check stability if available
-      if (iteration.stabilityMargin && iteration.stabilityMargin < 1.0) {
+      // Check stability if available - use the correct property name
+      if (iteration.initial_stability_margin && iteration.initial_stability_margin < 1.0) {
         isSuccessful = false;
       }
       
