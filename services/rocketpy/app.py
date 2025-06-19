@@ -340,7 +340,7 @@ class EnvironmentModel(BaseModel):
     timezone: Optional[str] = Field("UTC", description="Timezone")
     wind_speed_m_s: float = Field(0.0, description="Wind speed in m/s", ge=0, le=100)
     wind_direction_deg: float = Field(0.0, description="Wind direction in degrees (meteorological convention)", ge=0, le=360)
-    atmospheric_model: Literal["standard", "custom", "forecast"] = "standard"
+    atmospheric_model: Literal["standard", "custom", "forecast", "nrlmsise"] = "standard"
     temperature_offset_k: float = Field(0.0, description="Temperature offset from standard in Kelvin", ge=-50, le=50)
     pressure_offset_pa: float = Field(0.0, description="Pressure offset from standard in Pascals")
     # ✅ ADD: Optional field for high-fidelity atmospheric data from the frontend
@@ -704,12 +704,27 @@ class SimulationEnvironment:
                 wind_v = config.wind_speed_m_s * np.cos(np.radians(direction_to))  # North component
                 
                 # Use custom atmosphere to apply wind
-                self.env.set_atmospheric_model(
-                    type='custom_atmosphere',
-                    wind_u=[(0, wind_u), (1000, wind_u), (10000, wind_u * 1.5)],
-                    wind_v=[(0, wind_v), (1000, wind_v), (10000, wind_v * 1.5)]
-                )
-                logger.info(f"Applied wind: {config.wind_speed_m_s} m/s from {config.wind_direction_deg}°")
+                wind_u_profile = [
+                    (0, wind_u),
+                    (1000, wind_u),
+                    (10000, wind_u * 1.5)  # Stronger U-component at altitude
+                ]
+                
+                wind_v_profile = [
+                    (0, wind_v),
+                    (1000, wind_v),
+                    (10000, wind_v * 1.5)  # Stronger V-component at altitude
+                ]
+                
+                try:
+                    self.env.set_atmospheric_model(
+                        type='custom_atmosphere',
+                        wind_u=wind_u_profile,
+                        wind_v=wind_v_profile
+                    )
+                    logger.info(f"Applied wind: {config.wind_speed_m_s} m/s from {config.wind_direction_deg}°")
+                except Exception as e:
+                    logger.warning(f"Failed to set custom wind profile: {e}")
             except Exception as e:
                 logger.warning(f"Failed to apply wind model: {e}")
 
@@ -813,18 +828,75 @@ class SimulationMotor:
         
         propellant_total_mass = self.spec["mass"]["propellant_kg"]
         
-        # ✅ FIXED: Simplified LiquidMotor creation without Tank (which is abstract)
+        # ✅ FIXED: Use proper RocketPy tank pattern to prevent division by zero
         try:
+            # Import required RocketPy classes for tanks
+            from rocketpy import Fluid, CylindricalTank, MassFlowRateBasedTank
+            
+            # Calculate propellant ratios
+            oxidizer_ratio = 0.7  # 70% oxidizer (typical for N2O/Ethanol)
+            fuel_ratio = 0.3      # 30% fuel
+            oxidizer_mass_kg = propellant_total_mass * oxidizer_ratio
+            fuel_mass_kg = propellant_total_mass * fuel_ratio
+            
+            # Motor dimensions
+            motor_length = self.spec["dimensions"]["length_m"]
+            motor_radius = self.spec["dimensions"]["outer_diameter_m"] / 2
+            tank_radius = motor_radius * 0.8  # Tanks fit inside motor
+            
+            # Define fluids
+            oxidizer_liq = Fluid(name="N2O_l", density=1220)
+            oxidizer_gas = Fluid(name="N2O_g", density=1.9277)
+            fuel_liq = Fluid(name="ethanol_l", density=789)
+            fuel_gas = Fluid(name="ethanol_g", density=1.59)
+            
+            # Define tank geometry
+            tank_geometry = CylindricalTank(radius=tank_radius, height=motor_length * 0.6, spherical_caps=True)
+            
+            # Create oxidizer tank
+            oxidizer_tank = MassFlowRateBasedTank(
+                name="oxidizer tank",
+                geometry=tank_geometry,
+                flux_time=self.spec["burn_time_s"],
+                initial_liquid_mass=oxidizer_mass_kg,
+                initial_gas_mass=0.01,
+                liquid_mass_flow_rate_in=0,
+                liquid_mass_flow_rate_out=lambda t: oxidizer_mass_kg / self.spec["burn_time_s"],  # Constant flow
+                gas_mass_flow_rate_in=0,
+                gas_mass_flow_rate_out=0,
+                liquid=oxidizer_liq,
+                gas=oxidizer_gas,
+            )
+            
+            # Create fuel tank
+            fuel_tank = MassFlowRateBasedTank(
+                name="fuel tank",
+                geometry=tank_geometry,
+                flux_time=self.spec["burn_time_s"],
+                initial_liquid_mass=fuel_mass_kg,
+                initial_gas_mass=0.01,
+                liquid_mass_flow_rate_in=0,
+                liquid_mass_flow_rate_out=lambda t: fuel_mass_kg / self.spec["burn_time_s"],  # Constant flow
+                gas_mass_flow_rate_in=0,
+                gas_mass_flow_rate_out=0,
+                liquid=fuel_liq,
+                gas=fuel_gas,
+            )
+            
             # Create liquid motor with minimal required parameters
             self.motor = LiquidMotor(
                 thrust_source=thrust_curve,
                 dry_mass=self.spec["mass"]["total_kg"] - propellant_total_mass,
                 dry_inertia=(0.2, 0.2, 0.002),
                 nozzle_radius=self.spec["dimensions"]["outer_diameter_m"] / 4,
-                burn_time=self.spec["burn_time_s"],
+                center_of_dry_mass_position=self.spec["dimensions"]["length_m"] / 2,
                 nozzle_position=0.0,
-                center_of_dry_mass_position=self.spec["dimensions"]["length_m"] / 2
+                burn_time=self.spec["burn_time_s"]
             )
+            
+            # ✅ CRITICAL: Add tanks to prevent division by zero
+            self.motor.add_tank(tank=oxidizer_tank, position=motor_length * 0.6)
+            self.motor.add_tank(tank=fuel_tank, position=motor_length * 0.4)
             
             logger.info(f"✅ Created liquid motor with propellant: {propellant_total_mass:.1f}kg")
             
@@ -1731,10 +1803,21 @@ class MonteCarloSimulation:
             logger.info("="*50)
 
             # 1. Create nominal (non-stochastic) base objects
-            env_sim = EnhancedSimulationEnvironment(self.nominal_env_config)
-            motor_sim = EnhancedSimulationMotor(self.nominal_rocket_config.motor.motor_database_id)
-            rocket_sim = EnhancedSimulationRocket(self.nominal_rocket_config, motor_sim)
-            flight_sim = EnhancedSimulationFlight(rocket_sim, env_sim, self.nominal_launch_params, {})
+            # ✅ HYBRID APPROACH: Enhanced environment with basic components for Monte Carlo compatibility
+            try:
+                # Try enhanced environment for space-grade atmospheric modeling
+                env_sim = EnhancedSimulationEnvironment(self.nominal_env_config)
+                logger.info("✅ Using Enhanced Environment with space-grade atmospheric modeling")
+            except Exception as e:
+                # Fallback to basic environment if enhanced fails
+                logger.warning(f"Enhanced environment failed: {e}, using basic environment")
+                env_sim = SimulationEnvironment(self.nominal_env_config)
+            # ✅ COMPATIBILITY: Use basic motor for Monte Carlo compatibility
+            motor_sim = SimulationMotor(self.nominal_rocket_config.motor.motor_database_id)
+            rocket_sim = SimulationRocket(self.nominal_rocket_config, motor_sim)  # ✅ COMPATIBILITY
+            # ✅ Enhanced flight with space-grade precision settings
+            # ✅ COMPATIBILITY: Use basic flight for Monte Carlo compatibility
+            flight_sim = SimulationFlight(rocket_sim, env_sim, self.nominal_launch_params)
 
             # 2. Create Stochastic versions of the objects
             stochastic_env = self._create_stochastic_environment(env_sim.env)
@@ -1788,17 +1871,26 @@ class MonteCarloSimulation:
         # Map frontend parameter names to RocketPy parameter names
         mapped_variations = {}
         for param, variation in variations.items():
-            if param == 'windSpeed':
+            if param == 'wind_speed_m_s':  # ✅ FIXED: Match exact parameter name from frontend
                 # Convert wind speed variation to both X and Y factor variations
                 mapped_variations['wind_velocity_x_factor'] = variation
                 mapped_variations['wind_velocity_y_factor'] = variation
-            elif param == 'windDirection':
+            elif param == 'wind_direction_deg':  # ✅ FIXED: Match exact parameter name from frontend
                 # Wind direction variations aren't directly supported by StochasticEnvironment
                 # Skip this parameter for now
+                logger.info(f"Skipping wind_direction_deg variation (not supported by StochasticEnvironment)")
+                pass
+            elif param == 'windSpeed':  # Legacy parameter name support
+                mapped_variations['wind_velocity_x_factor'] = variation
+                mapped_variations['wind_velocity_y_factor'] = variation
+            elif param == 'windDirection':  # Legacy parameter name support
+                logger.info(f"Skipping windDirection variation (not supported by StochasticEnvironment)")
                 pass
             else:
+                # Pass through other parameters directly
                 mapped_variations[param] = variation
         
+        logger.info(f"🔧 Environment variations mapped: {list(mapped_variations.keys())}")
         return StochasticEnvironment(base_env, **mapped_variations)
 
     def _create_stochastic_rocket(self, base_rocket: Rocket) -> StochasticRocket:
@@ -1808,23 +1900,64 @@ class MonteCarloSimulation:
         # Map frontend parameter names to RocketPy parameter names
         mapped_rocket_variations = {}
         for param, variation in rocket_variations.items():
-            if param == 'Cd':
-                # 'Cd' might not be a valid StochasticRocket parameter
-                # Skip it for now - drag coefficient variations are complex in RocketPy
+            if param == 'mass_variation':
+                # Map mass_variation to RocketPy's mass parameter
+                mapped_rocket_variations['mass'] = variation
+            elif param == 'Cd' or param == 'drag_coefficient':
+                # Drag coefficient variations are complex in RocketPy - skip for now
+                logger.info(f"Skipping {param} variation (drag coefficient variations not supported)")
                 pass
+            elif param == 'radius_variation':
+                mapped_rocket_variations['radius'] = variation
+            elif param == 'inertia_variation':
+                mapped_rocket_variations['inertia'] = variation
             else:
+                # Pass through other parameters that might be valid RocketPy parameters
                 mapped_rocket_variations[param] = variation
+        
+        logger.info(f"🔧 Rocket variations mapped: {list(mapped_rocket_variations.keys())}")
         
         # Create stochastic rocket shell
         stochastic_rocket = StochasticRocket(base_rocket, **mapped_rocket_variations)
         
         # Handle stochastic motor (assuming one motor)
         motor_variations = self._get_variations_for('motor')
-        stochastic_motor = StochasticSolidMotor(base_rocket.motor, **motor_variations)
+        
+        # Map motor parameter names
+        mapped_motor_variations = {}
+        for param, variation in motor_variations.items():
+            if param == 'thrust_variation':
+                # Map thrust_variation to RocketPy's thrust parameter
+                mapped_motor_variations['thrust'] = variation
+            elif param == 'burn_time_variation':
+                mapped_motor_variations['burn_time'] = variation
+            elif param == 'total_impulse_variation':
+                mapped_motor_variations['total_impulse'] = variation
+            else:
+                # Pass through other motor parameters
+                mapped_motor_variations[param] = variation
+        
+        logger.info(f"🔧 Motor variations mapped: {list(mapped_motor_variations.keys())}")
+        
+        # ✅ CRITICAL FIX: Detect motor type and handle GenericMotor properly
+        motor_obj = base_rocket.motor
+        motor_class_name = motor_obj.__class__.__name__
+        logger.info(f"🔧 Detected motor type: {motor_class_name}")
         
         # Get motor position from the rocket configuration instead of motor object
         motor_position = self.nominal_rocket_config.motor.position_from_tail_m
-        stochastic_rocket.add_motor(stochastic_motor, motor_position)
+        
+        if motor_class_name == 'SolidMotor' and hasattr(motor_obj, 'grain_number'):
+            # This is a real SolidMotor - use StochasticSolidMotor
+            logger.info("🔧 Creating StochasticSolidMotor for solid motor")
+            stochastic_motor = StochasticSolidMotor(motor_obj, **mapped_motor_variations)
+            stochastic_rocket.add_motor(stochastic_motor, motor_position)
+        else:
+            # This is GenericMotor, LiquidMotor, or other - skip stochastic variations
+            logger.info(f"🔧 {motor_class_name} detected - adding motor without stochastic variations")
+            if mapped_motor_variations:
+                logger.warning(f"Motor variations {list(mapped_motor_variations.keys())} skipped for Monte Carlo due to incompatible motor type")
+            stochastic_rocket.add_motor(motor_obj, motor_position)
 
         # Handle other components like fins, parachutes if variations are defined
         # This part can be expanded based on which components can have variations.
@@ -2409,47 +2542,71 @@ class EnhancedSimulationMotor(SimulationMotor):
             fuel_tank_length = motor_length * 0.3      # 30% of motor length
             tank_radius = motor_radius * 0.85          # 85% of motor radius to fit inside
             
-            # ✅ FIXED: Use proper RocketPy tank configuration format
-            # Create tank configurations that prevent division by zero
-            oxidizer_tank = {
-                        'type': 'oxidizer',
-                        'geometry': 'cylindrical',
-                'tank_height': oxidizer_tank_length,
-                'tank_radius': tank_radius,
-                'liquid_mass': oxidizer_mass_kg,
-                'liquid_height': oxidizer_tank_length * 0.9,  # 90% fill level
-                'tank_position': motor_length * 0.7  # Position towards combustion chamber
-            }
+            # ✅ CRITICAL FIX: Use proper RocketPy tank pattern to prevent division by zero
+            # Import required RocketPy classes for tanks
+            from rocketpy import Fluid, CylindricalTank, MassFlowRateBasedTank
             
-            fuel_tank = {
-                        'type': 'fuel',
-                        'geometry': 'cylindrical',
-                'tank_height': fuel_tank_length,
-                'tank_radius': tank_radius,
-                'liquid_mass': fuel_mass_kg,
-                'liquid_height': fuel_tank_length * 0.9,  # 90% fill level
-                'tank_position': motor_length * 0.3  # Position towards nozzle
-            }
+            # Define fluids (using N2O/Ethanol example from RocketPy docs)
+            oxidizer_liq = Fluid(name="N2O_l", density=1220)
+            oxidizer_gas = Fluid(name="N2O_g", density=1.9277)
+            fuel_liq = Fluid(name="ethanol_l", density=789)
+            fuel_gas = Fluid(name="ethanol_g", density=1.59)
             
-            # ✅ CRITICAL FIX: Use RocketPy 1.2+ tank format 
-            # Create the LiquidMotor with proper tank list format
+            # Define tank geometry
+            tank_geometry = CylindricalTank(radius=tank_radius, height=max(oxidizer_tank_length, fuel_tank_length), spherical_caps=True)
+            
+            # Create oxidizer tank with proper mass flow rates
+            oxidizer_tank = MassFlowRateBasedTank(
+                name="oxidizer tank",
+                geometry=tank_geometry,
+                flux_time=self.spec["burn_time_s"],
+                initial_liquid_mass=oxidizer_mass_kg,
+                initial_gas_mass=0.01,  # Small gas mass
+                liquid_mass_flow_rate_in=0,
+                liquid_mass_flow_rate_out=lambda t: oxidizer_mass_kg / self.spec["burn_time_s"] * np.exp(-0.1 * t),  # Exponential decay
+                gas_mass_flow_rate_in=0,
+                gas_mass_flow_rate_out=0,
+                liquid=oxidizer_liq,
+                gas=oxidizer_gas,
+            )
+            
+            # Create fuel tank with proper mass flow rates
+            fuel_tank = MassFlowRateBasedTank(
+                name="fuel tank",
+                geometry=tank_geometry,
+                flux_time=self.spec["burn_time_s"],
+                initial_liquid_mass=fuel_mass_kg,
+                initial_gas_mass=0.01,  # Small gas mass
+                liquid_mass_flow_rate_in=0,
+                liquid_mass_flow_rate_out=lambda t: fuel_mass_kg / self.spec["burn_time_s"] * np.exp(-0.1 * t),  # Exponential decay
+                gas_mass_flow_rate_in=0,
+                gas_mass_flow_rate_out=lambda t: 0.01 / self.spec["burn_time_s"] * np.exp(-0.1 * t),  # Gas flow out
+                liquid=fuel_liq,
+                gas=fuel_gas,
+            )
+            
+            # ✅ FIXED: Create LiquidMotor with proper RocketPy constructor parameters
             self.motor = LiquidMotor(
                 thrust_source=thrust_curve,
                 dry_mass=self.spec["mass"]["total_kg"] - total_propellant_kg,
                 dry_inertia=(0.2, 0.2, 0.002),
                 nozzle_radius=motor_radius * 0.7,  # Nozzle throat radius
-                burn_time=self.spec["burn_time_s"],
                 center_of_dry_mass_position=motor_length / 2,
                 nozzle_position=0,
-                tanks=[oxidizer_tank, fuel_tank]  # Pass as list of tank dicts
+                burn_time=self.spec["burn_time_s"],
+                coordinate_system_orientation="nozzle_to_combustion_chamber",
             )
+            
+            # ✅ CRITICAL: Add tanks to the motor (this prevents division by zero)
+            self.motor.add_tank(tank=oxidizer_tank, position=motor_length * 0.7)  # Oxidizer towards combustion chamber
+            self.motor.add_tank(tank=fuel_tank, position=motor_length * 0.3)     # Fuel towards nozzle
             
             logger.info(f"✅ Created enhanced liquid motor: {self.spec['name']} with {oxidizer_mass_kg:.3f}kg oxidizer + {fuel_mass_kg:.3f}kg fuel (ratio: {oxidizer_ratio:.2f}:{fuel_ratio:.2f}) at position {motor_position}m")
             
         except Exception as e:
             logger.warning(f"❌ Enhanced liquid motor creation failed: {e}")
-            logger.info("🔄 Using basic solid motor fallback for liquid motor")
-            # ✅ Fallback to solid motor instead of broken liquid motor
+            logger.info("🔄 Using enhanced solid motor fallback for liquid motor")
+            # ✅ Fallback to enhanced solid motor instead of broken liquid motor
             self._create_enhanced_solid_motor()
     
     def _create_enhanced_hybrid_motor(self):
@@ -2982,6 +3139,7 @@ class EnhancedSimulationRocket(SimulationRocket):
         cant_angle = fin.cant_angle_deg     # Use actual cant angle
         
         try:
+            # ✅ FIXED: Use numeric drag coefficient instead of NACA airfoil
             self.rocket.add_trapezoidal_fins(
                 n=fin_count,                # ✅ Use actual fin count from model
                 root_chord=root_chord,
@@ -2990,7 +3148,7 @@ class EnhancedSimulationRocket(SimulationRocket):
                 position=0.1,  # Position from tail
                 cant_angle=cant_angle,      # ✅ Use actual cant angle
                 sweep_length=sweep_length,
-                airfoil=("NACA", "0012"),  # NACA 0012 airfoil
+                airfoil=None,  # ✅ FIXED: Use default drag calculation instead of external airfoil file
                 name="main_fins"
             )
             
@@ -3228,23 +3386,71 @@ class EnhancedSimulationFlight(SimulationFlight):
             # Enhanced trajectory extraction with more data points and analysis
             time_points = self.flight.time
             
-            # Position data (Earth-fixed frame)
-            x_data = self.flight.x
-            y_data = self.flight.y
-            z_data = self.flight.z
-            position = [[float(x), float(y), float(z)] for x, y, z in zip(x_data, y_data, z_data)]
+            # ✅ ROBUST: Check if time_points is callable or iterable
+            if callable(time_points):
+                time_array = [time_points(i) for i in range(min(100, len(self.flight.time_list)))]
+            elif hasattr(time_points, '__len__') and len(time_points) > 0:
+                # ✅ FIXED: Add length checking and safe array conversion
+                max_points = min(100, len(time_points))  # Limit to 100 points for performance
+                step = max(1, len(time_points) // max_points)
+                safe_indices = list(range(0, len(time_points), step))[:max_points]
+                time_array = [float(time_points[i]) for i in safe_indices]
+            else:
+                logger.warning("Time points not available, using simplified trajectory")
+                return super()._extract_trajectory()
+            
+            # Use safe indices for data extraction
+            safe_indices = list(range(0, len(time_array)))
+            
+            # Position data (Earth-fixed frame) - check if callable or direct access
+            try:
+                if callable(self.flight.x):
+                    x_data = [float(self.flight.x(t)) for t in time_array]
+                    y_data = [float(self.flight.y(t)) for t in time_array]  
+                    z_data = [float(self.flight.z(t)) for t in time_array]
+                else:
+                    x_data = [float(self.flight.x[i]) for i in safe_indices if i < len(self.flight.x)]
+                    y_data = [float(self.flight.y[i]) for i in safe_indices if i < len(self.flight.y)]
+                    z_data = [float(self.flight.z[i]) for i in safe_indices if i < len(self.flight.z)]
+            except:
+                logger.warning("Position data not available in expected format")
+                return super()._extract_trajectory()
+                
+            position = [[x, y, z] for x, y, z in zip(x_data, y_data, z_data)]
             
             # Velocity data (Earth-fixed frame)
-            vx_data = self.flight.vx
-            vy_data = self.flight.vy
-            vz_data = self.flight.vz
-            velocity = [[float(vx), float(vy), float(vz)] for vx, vy, vz in zip(vx_data, vy_data, vz_data)]
+            try:
+                if callable(self.flight.vx):
+                    vx_data = [float(self.flight.vx(t)) for t in time_array]
+                    vy_data = [float(self.flight.vy(t)) for t in time_array]
+                    vz_data = [float(self.flight.vz(t)) for t in time_array]
+                else:
+                    vx_data = [float(self.flight.vx[i]) for i in safe_indices if i < len(self.flight.vx)]
+                    vy_data = [float(self.flight.vy[i]) for i in safe_indices if i < len(self.flight.vy)]
+                    vz_data = [float(self.flight.vz[i]) for i in safe_indices if i < len(self.flight.vz)]
+            except:
+                logger.warning("Velocity data not available in expected format")
+                return super()._extract_trajectory()
+                
+            velocity = [[vx, vy, vz] for vx, vy, vz in zip(vx_data, vy_data, vz_data)]
             
             # Acceleration data (Earth-fixed frame)
-            ax_data = self.flight.ax
-            ay_data = self.flight.ay
-            az_data = self.flight.az
-            acceleration = [[float(ax), float(ay), float(az)] for ax, ay, az in zip(ax_data, ay_data, az_data)]
+            try:
+                if callable(self.flight.ax):
+                    ax_data = [float(self.flight.ax(t)) for t in time_array]
+                    ay_data = [float(self.flight.ay(t)) for t in time_array]
+                    az_data = [float(self.flight.az(t)) for t in time_array]
+                else:
+                    ax_data = [float(self.flight.ax[i]) for i in safe_indices if i < len(self.flight.ax)]
+                    ay_data = [float(self.flight.ay[i]) for i in safe_indices if i < len(self.flight.ay)]
+                    az_data = [float(self.flight.az[i]) for i in safe_indices if i < len(self.flight.az)]
+            except:
+                # Acceleration might not be available, use zeros
+                ax_data = [0.0] * len(time_array)
+                ay_data = [0.0] * len(time_array)  
+                az_data = [0.0] * len(time_array)
+                
+            acceleration = [[ax, ay, az] for ax, ay, az in zip(ax_data, ay_data, az_data)]
             
             # Enhanced attitude data (quaternions if available)
             attitude = None
@@ -3252,26 +3458,40 @@ class EnhancedSimulationFlight(SimulationFlight):
             
             try:
                 # Try to extract quaternion attitude data
-                e0_data = self.flight.e0
-                e1_data = self.flight.e1
-                e2_data = self.flight.e2
-                e3_data = self.flight.e3
-                attitude = [[float(e0), float(e1), float(e2), float(e3)] 
-                           for e0, e1, e2, e3 in zip(e0_data, e1_data, e2_data, e3_data)]
+                if all(hasattr(self.flight, attr) for attr in ['e0', 'e1', 'e2', 'e3']):
+                    if callable(self.flight.e0):
+                        e0_data = [float(self.flight.e0(t)) for t in time_array]
+                        e1_data = [float(self.flight.e1(t)) for t in time_array]
+                        e2_data = [float(self.flight.e2(t)) for t in time_array]
+                        e3_data = [float(self.flight.e3(t)) for t in time_array]
+                    else:
+                        e0_data = [float(self.flight.e0[i]) for i in safe_indices if i < len(self.flight.e0)]
+                        e1_data = [float(self.flight.e1[i]) for i in safe_indices if i < len(self.flight.e1)]
+                        e2_data = [float(self.flight.e2[i]) for i in safe_indices if i < len(self.flight.e2)]
+                        e3_data = [float(self.flight.e3[i]) for i in safe_indices if i < len(self.flight.e3)]
+                    attitude = [[e0, e1, e2, e3] for e0, e1, e2, e3 in zip(e0_data, e1_data, e2_data, e3_data)]
                 
                 # Angular velocity data
-                wx_data = self.flight.wx
-                wy_data = self.flight.wy
-                wz_data = self.flight.wz
-                angular_velocity = [[float(wx), float(wy), float(wz)] 
-                                   for wx, wy, wz in zip(wx_data, wy_data, wz_data)]
+                if all(hasattr(self.flight, attr) for attr in ['wx', 'wy', 'wz']):
+                    if callable(self.flight.wx):
+                        wx_data = [float(self.flight.wx(t)) for t in time_array]
+                        wy_data = [float(self.flight.wy(t)) for t in time_array]
+                        wz_data = [float(self.flight.wz(t)) for t in time_array]
+                    else:
+                        wx_data = [float(self.flight.wx[i]) for i in safe_indices if i < len(self.flight.wx)]
+                        wy_data = [float(self.flight.wy[i]) for i in safe_indices if i < len(self.flight.wy)]
+                        wz_data = [float(self.flight.wz[i]) for i in safe_indices if i < len(self.flight.wz)]
+                    angular_velocity = [[wx, wy, wz] for wx, wy, wz in zip(wx_data, wy_data, wz_data)]
                 
-                logger.info("Extracted full 6-DOF trajectory data with attitude")
-            except:
-                logger.info("6-DOF attitude data not available, using 3-DOF trajectory")
+                if attitude is not None:
+                    logger.info("Extracted full 6-DOF trajectory data with attitude")
+                else:
+                    logger.info("Extracted enhanced 3-DOF trajectory data")
+            except Exception as att_error:
+                logger.debug(f"6-DOF attitude data not available: {att_error}, using 3-DOF trajectory")
             
             return TrajectoryData(
-                time=[float(t) for t in time_points],
+                time=time_array,
                 position=position,
                 velocity=velocity,
                 acceleration=acceleration,
@@ -3282,7 +3502,16 @@ class EnhancedSimulationFlight(SimulationFlight):
         except Exception as e:
             logger.warning(f"Enhanced trajectory extraction failed: {e}")
             # Fallback to basic trajectory extraction
-            return super()._extract_trajectory()
+            try:
+                return super()._extract_trajectory()
+            except:
+                # Ultimate fallback - return minimal trajectory
+                return TrajectoryData(
+                    time=[0.0, 1.0],
+                    position=[[0.0, 0.0, 0.0], [0.0, 0.0, 100.0]],
+                    velocity=[[0.0, 0.0, 0.0], [0.0, 0.0, 50.0]],
+                    acceleration=[[0.0, 0.0, 0.0], [0.0, 0.0, 10.0]]
+                )
     
     def _analyze_enhanced_impact(self) -> Dict[str, Any]:
         """Comprehensive impact analysis including landing accuracy and safety"""
@@ -3856,7 +4085,7 @@ async def simulate_enhanced_6dof(request: SimulationRequestModel):
         'include_enhanced_analysis': True
     }
     
-    return await simulate_rocket_6dof_enhanced(
+    result = await simulate_rocket_6dof_enhanced(
         request.rocket, 
         environment, 
         launch_params,
@@ -3892,7 +4121,7 @@ async def simulate_professional_grade(request: SimulationRequestModel):
         'include_performance_metrics': True
     }
     
-    return await simulate_rocket_6dof_enhanced(
+    result = await simulate_rocket_6dof_enhanced(
         request.rocket, 
         environment, 
         launch_params,

@@ -54,7 +54,10 @@ export async function POST(req: NextRequest) {
     console.log(`🎲 Proxying Monte Carlo simulation request to ${rocketpyUrl}/simulate/monte-carlo`);
     
     // Create AbortController with longer timeout for threaded Monte Carlo
-    const timeoutMs = Math.max(60000, (iterations || 100) * 500); // At least 1 minute, or 500ms per iteration
+    // Liquid motors and complex simulations need more time
+    const baseTimeout = 120000; // 2 minutes base
+    const iterationTime = (iterations || 100) * 1000; // 1 second per iteration
+    const timeoutMs = Math.max(baseTimeout, iterationTime);
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     
