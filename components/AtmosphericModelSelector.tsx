@@ -69,7 +69,7 @@ export default function AtmosphericModelSelector() {
   const handleModelChange = (selectedModel: string) => {
     const updatedEnvironment = {
       ...environment,
-      atmosphericModel: selectedModel as "standard" | "forecast" | "custom" | "nrlmsise"
+      atmospheric_model: selectedModel as "standard" | "forecast" | "custom" | "nrlmsise"
     };
     
     setEnvironment(updatedEnvironment);
@@ -131,7 +131,7 @@ export default function AtmosphericModelSelector() {
         </label>
         
         <select
-          value={environment.atmosphericModel || modelsData?.default_model || 'standard'}
+          value={environment.atmospheric_model || modelsData?.default_model || 'standard'}
           onChange={(e) => handleModelChange(e.target.value)}
           className="w-full bg-slate-700/70 border border-white/10 text-white text-sm rounded-lg px-4 py-3 hover:bg-slate-700 focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all"
         >
@@ -144,7 +144,7 @@ export default function AtmosphericModelSelector() {
       </div>
 
       {/* Current Model Info */}
-      {modelsData && environment.atmosphericModel && (
+      {modelsData && environment.atmospheric_model && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -152,28 +152,28 @@ export default function AtmosphericModelSelector() {
           className="bg-slate-700/30 rounded-lg p-3 border border-white/5"
         >
           <div className="flex items-center gap-2 mb-2">
-            <span className="text-lg">{getModelIcon(environment.atmosphericModel)}</span>
-            <span className={`font-medium ${getModelColor(environment.atmosphericModel)}`}>
-              {environment.atmosphericModel.charAt(0).toUpperCase() + environment.atmosphericModel.slice(1)} Model
+            <span className="text-lg">{getModelIcon(environment.atmospheric_model)}</span>
+            <span className={`font-medium ${getModelColor(environment.atmospheric_model)}`}>
+              {environment.atmospheric_model.charAt(0).toUpperCase() + environment.atmospheric_model.slice(1)} Model
             </span>
           </div>
           
           <p className="text-xs text-slate-300 mb-2">
-            {modelsData.descriptions[environment.atmosphericModel]}
+            {modelsData.descriptions[environment.atmospheric_model]}
           </p>
           
           <div className="text-xs text-gray-400">
-            <strong>Requirements:</strong> {modelsData.requirements[environment.atmosphericModel]}
+            <strong>Requirements:</strong> {modelsData.requirements[environment.atmospheric_model]}
           </div>
           
           {/* Model Capabilities */}
-          {modelsData.capabilities && modelsData.capabilities[environment.atmosphericModel] && (
+          {modelsData.capabilities && modelsData.capabilities[environment.atmospheric_model] && (
             <div className="mt-2 text-xs">
               <div className="text-slate-400">
-                <strong>Features:</strong> {modelsData.capabilities[environment.atmosphericModel].features?.join(', ')}
+                <strong>Features:</strong> {modelsData.capabilities[environment.atmospheric_model].features?.join(', ')}
               </div>
               <div className="text-slate-400">
-                <strong>Altitude Range:</strong> {modelsData.capabilities[environment.atmosphericModel].altitude_range_m?.[0]}m - {modelsData.capabilities[environment.atmosphericModel].altitude_range_m?.[1]}m
+                <strong>Altitude Range:</strong> {modelsData.capabilities[environment.atmospheric_model].altitude_range_m?.[0]}m - {modelsData.capabilities[environment.atmospheric_model].altitude_range_m?.[1]}m
               </div>
             </div>
           )}

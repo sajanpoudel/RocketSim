@@ -10,7 +10,7 @@ export default function AtmosphericDataIndicator({ compact = false }: Atmospheri
   const { environment } = useRocket();
 
   const getIndicatorData = () => {
-    switch (environment.atmosphericModel) {
+    switch (environment.atmospheric_model) {
       case 'forecast':
         return {
           icon: '🌤️',
@@ -98,7 +98,7 @@ export default function AtmosphericDataIndicator({ compact = false }: Atmospheri
         <div>
           <span className="text-gray-400">Location Data:</span>
           <div className="font-medium text-white">
-            {environment.latitude?.toFixed(4) || '0.0000'}°, {environment.longitude?.toFixed(4) || '0.0000'}°
+            {environment.latitude_deg?.toFixed(4) || '0.0000'}°, {environment.longitude_deg?.toFixed(4) || '0.0000'}°
           </div>
         </div>
         <div>
@@ -128,21 +128,21 @@ export default function AtmosphericDataIndicator({ compact = false }: Atmospheri
       <div className="mt-3 pt-3 border-t border-white/10">
         <h4 className="text-sm font-medium text-white mb-2">Simulation Impact</h4>
         <div className="space-y-1 text-xs text-gray-300">
-          {environment.atmosphericModel === 'forecast' && (
+          {environment.atmospheric_model === 'forecast' && (
             <>
               <div>• Real wind data affects trajectory accuracy</div>
               <div>• Temperature/pressure impact drag calculations</div>
               <div>• Ideal for actual launch planning</div>
             </>
           )}
-          {environment.atmosphericModel === 'nrlmsise' && (
+          {environment.atmospheric_model === 'nrlmsise' && (
             <>
               <div>• High-altitude temperature profiles (0-120km)</div>
               <div>• Includes space weather effects</div>
               <div>• Best for high-altitude research rockets</div>
             </>
           )}
-          {environment.atmosphericModel === 'standard' && (
+          {environment.atmospheric_model === 'standard' && (
             <>
               <div>• Baseline ISA model for comparison</div>
               <div>• Good for educational use</div>
