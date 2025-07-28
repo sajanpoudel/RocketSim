@@ -10,7 +10,7 @@ export function ShiningStars() {
 
   // Generate shining stars
   const { positions, colors, sizes } = useMemo(() => {
-    const count = 5000 // Increased from 8000 for more spectacular effect
+    const count = 700 // Drastically reduced for performance
     const positions = new Float32Array(count * 3)
     const colors = new Float32Array(count * 3)
     const sizes = new Float32Array(count)
@@ -40,7 +40,7 @@ export function ShiningStars() {
   // Bright individual stars that twinkle - increased count
   const brightStars = useMemo(() => {
     const stars = []
-    for (let i = 0; i < 70; i++) { // Increased from 50
+    for (let i = 0; i < 30; i++) { // Reduced from 70 for performance
       const radius = 100 + Math.random() * 500
       const theta = Math.random() * Math.PI * 2
       const phi = Math.acos(2 * Math.random() - 1)
@@ -61,7 +61,7 @@ export function ShiningStars() {
   // Glowing star halos for depth
   const glowingStars = useMemo(() => {
     const stars = []
-    for (let i = 0; i < 45; i++) { // New glowing stars
+    for (let i = 0; i < 20; i++) { // Reduced from 45 for performance
       const radius = 150 + Math.random() * 800
       const theta = Math.random() * Math.PI * 2
       const phi = Math.acos(2 * Math.random() - 1)

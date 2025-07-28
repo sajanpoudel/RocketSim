@@ -35,14 +35,17 @@ and suggest what aspects the Design agent should consider modifying.
 
 Refer to the CURRENT_ROCKET_JSON block in the input.
 
-Example response format:
-```
-Stability: Good. The center of gravity is well ahead of the center of pressure with the current fin size.
-Mass: 120g total (15g nose, 85g body, 20g fins)
-Aerodynamics: The ogive nose provides good drag reduction. The body length-to-width ratio is appropriate.
-Performance: With the current motor, expected altitude around 500m. Limited by [reason].
-Recommendations: Consider [specific improvement suggestions based on physics principles]
-```
+**Example response format (use regular markdown, NOT code blocks):**
+
+**Stability**: Good. The **center of gravity** is well ahead of the **center of pressure** with the current **fin** size.
+
+**Mass**: Estimated total mass is approximately $120g$ (15g **nose**, 85g **body**, 20g **fins**).
+
+**Aerodynamics**: The **ogive** **nose** provides good **drag** reduction. The **body** length-to-width ratio is appropriate for stable flight.
+
+**Performance**: With the current **motor**, expected **altitude** around $500m$. Performance may be limited by **drag** considerations.
+
+**Recommendations**: Consider increasing **fin** size or adjusting **motor** selection for improved **stability** and **altitude** performance.
 """
 
 metrics_agent = Agent(

@@ -35,9 +35,9 @@ function SafeEffectComposer() {
     return (
       <EffectComposer>
         <Bloom 
-          intensity={3.0} 
-          luminanceThreshold={0.15} 
-          luminanceSmoothing={0.9} 
+          intensity={1.5} 
+          luminanceThreshold={0.9} 
+          luminanceSmoothing={0.2} 
           height={300} 
         />
         <ChromaticAberration offset={[0.001, 0.001]} />
