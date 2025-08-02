@@ -1,10 +1,11 @@
 import './globals.css'
 import { AuthProvider } from '@/lib/auth/AuthContext'
 import { Toaster } from '@/components/ui/sonner'
+import { Metadata } from 'next'
 
-export const metadata = {
-  title: 'ROCKETv1 - AI-Powered Rocket Engineering Platform',
-  description: 'Advanced rocket simulation platform with AI-powered design assistance, real-time 3D visualization, and professional-grade physics simulation.',
+export const metadata: Metadata = {
+  title: 'Rocketez - AI-Powered Rocket Engineering Platform',
+  description: 'Design, simulate, and optimize rockets with AI assistance. Professional-grade rocket engineering platform with real-time 3D visualization and advanced physics simulation.',
 }
 
 export default function RootLayout({

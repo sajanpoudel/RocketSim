@@ -271,7 +271,8 @@ export async function POST(req: NextRequest) {
             "25": 590.0,
             "50": 650.0,
             "75": 710.0,
-            "95": 780.0
+            "95": 780.0,
+            "99": 810.0
           }
         },
         maxVelocity: {
@@ -284,7 +285,8 @@ export async function POST(req: NextRequest) {
             "25": 160.0,
             "50": 170.0,
             "75": 180.0,
-            "95": 195.0
+            "95": 195.0,
+            "99": 202.0
           }
         },
         apogeeTime: {
@@ -297,7 +299,8 @@ export async function POST(req: NextRequest) {
             "25": 10.1,
             "50": 11.0,
             "75": 11.9,
-            "95": 12.8
+            "95": 12.8,
+            "99": 13.5
           }
         },
         stabilityMargin: {
@@ -310,7 +313,8 @@ export async function POST(req: NextRequest) {
             "25": 1.6,
             "50": 1.7,
             "75": 1.8,
-            "95": 2.1
+            "95": 2.1,
+            "99": 2.2
           }
         }
       },
@@ -321,6 +325,9 @@ export async function POST(req: NextRequest) {
         stabilityMargin: 1.7 + (Math.random() - 0.5) * 0.4,
         driftDistance: 35 + Math.random() * 40
       })),
+      successful_iterations: 50,
+      failed_iterations: 0,
+      execution_time_s: 2.5,
       landingDispersion: {
         coordinates: [[0, 0]],
         cep: 42.5,

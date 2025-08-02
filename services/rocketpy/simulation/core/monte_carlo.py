@@ -403,7 +403,8 @@ class ThreadSafeRocketPyMonteCarlo:
                         '25': float(np.percentile(data, 25)),
                         '50': float(np.percentile(data, 50)),
                         '75': float(np.percentile(data, 75)),
-                        '95': float(np.percentile(data, 95))
+                        '95': float(np.percentile(data, 95)),
+                        '99': float(np.percentile(data, 99))
                     }
                 )
             
@@ -418,7 +419,10 @@ class ThreadSafeRocketPyMonteCarlo:
             return MonteCarloResult(
                 nominal=baseline,
                 statistics=statistics,
-                iterations=iterations
+                iterations=iterations,
+                successful_iterations=len(iterations),
+                failed_iterations=0,
+                execution_time_s=0.0
             )
             
         except Exception as e:

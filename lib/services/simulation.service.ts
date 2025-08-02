@@ -1,5 +1,5 @@
 /**
- * ROCKETv1 - Simulation Data Management Service
+ * Rocketez - Simulation Data Management Service
  * =============================================
  * 
  * This service manages all aspects of rocket simulation data persistence, analysis results storage,
@@ -46,7 +46,7 @@
  * - **Analysis Engines**: Stores results from stability, Monte Carlo, and performance analysis
  * 
  * @version 1.0.0
- * @author ROCKETv1 Team
+ * @author Rocketez Team
  * @see {@link lib/services/database.service.ts} for core database operations
  * @see {@link app/api/simulate} for simulation API endpoints
  * @see {@link services/rocketpy} for high-fidelity physics simulations

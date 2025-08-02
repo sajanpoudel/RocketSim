@@ -31,7 +31,7 @@ export default function UserProfile() {
       await signOut();
       toast({
         title: "Signed Out",
-        description: "Successfully signed out of ROCKETv1.",
+        description: "Successfully signed out of Rocketez.",
       });
     } catch (error) {
       toast({

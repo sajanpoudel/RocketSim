@@ -587,7 +587,7 @@ export default function LeftPanel({ isCollapsed, onCollapse, onProjectClick, wid
       <div className={`border-b border-white/5 ${isVeryNarrow ? 'p-3' : isNarrow ? 'p-4' : 'p-6'}`}>
         <div className={`flex items-center justify-between ${isVeryNarrow ? 'mb-3' : isNarrow ? 'mb-4' : 'mb-6'}`}>
           <h1 className={`font-semibold text-white ${isVeryNarrow ? 'text-sm truncate' : isNarrow ? 'text-lg truncate' : 'text-xl'}`}>
-            {isVeryNarrow ? 'R.v1' : isNarrow ? 'ROCKET' : 'ROCKETv1'}
+            {isVeryNarrow ? 'R.ez' : isNarrow ? 'ROCKET' : 'Rocketez'}
           </h1>
           <Button variant="ghost" size="sm" onClick={onCollapse} className="p-2">
             <ChevronLeft className="w-5 h-5" />

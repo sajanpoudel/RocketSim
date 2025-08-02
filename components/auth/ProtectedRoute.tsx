@@ -37,7 +37,7 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps) {
       <div className="min-h-screen bg-black flex items-center justify-center">
         <div className="text-center">
           <Rocket className="w-12 h-12 text-cyan-500 animate-pulse mx-auto mb-4" />
-          <p className="text-white text-lg">Initializing ROCKETv1...</p>
+          <p className="text-white text-lg">Initializing Rocketez...</p>
           <p className="text-gray-400 text-sm mt-2">Connecting to mission control</p>
           <div className="mt-4">
             <div className="w-48 bg-gray-700 rounded-full h-2 mx-auto">

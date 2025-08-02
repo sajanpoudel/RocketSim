@@ -37,8 +37,8 @@ export default function AuthPage() {
         });
       } else {
         toast({
-          title: "Welcome to ROCKETv1!",
-          description: "Successfully signed in with Google.",
+          title: "Welcome to Rocketez!",
+          description: "Sign in to access your rocket designs and simulations.",
         });
         // Note: redirect will happen automatically via useEffect when user state updates
       }
@@ -82,7 +82,7 @@ export default function AuthPage() {
             transition={{ duration: 0.5 }}
           >
             <Rocket className="w-12 h-12 text-cyan-500 mr-3" />
-            <span className="text-3xl font-bold text-white">ROCKETv1</span>
+            <span className="text-3xl font-bold text-white">Rocketez</span>
           </motion.div>
           
           <motion.div

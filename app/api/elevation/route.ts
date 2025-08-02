@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
         `https://epqs.nationalmap.gov/v1/json?x=${lon}&y=${lat}&units=Meters&wkid=4326&includeDate=false`,
         {
           headers: {
-            'User-Agent': 'ROCKETv1/1.0 (Rocket Design Application)',
+            'User-Agent': 'Rocketez/1.0 (Rocket Design Application)',
           },
           // Add timeout
           signal: AbortSignal.timeout(5000)
@@ -56,7 +56,7 @@ export async function GET(request: NextRequest) {
         `https://api.open-elevation.com/api/v1/lookup?locations=${lat},${lon}`,
         {
           headers: {
-            'User-Agent': 'ROCKETv1/1.0 (Rocket Design Application)',
+            'User-Agent': 'Rocketez/1.0 (Rocket Design Application)',
           },
           signal: AbortSignal.timeout(5000)
         }

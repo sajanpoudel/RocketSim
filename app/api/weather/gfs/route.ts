@@ -184,7 +184,7 @@ async function fetchOpenMeteoGFS(
       `https://api.open-meteo.com/v1/forecast?${params}`,
       {
         headers: {
-          'User-Agent': 'ROCKETv1-Simulation/1.0'
+          'User-Agent': 'Rocketez-Simulation/1.0'
         }
       }
     );

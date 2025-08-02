@@ -1,6 +1,5 @@
 /**
- * ROCKETv1 - AI Agent Action System (Component-Based)
- * ===================================================
+ * Rocketez - AI Agent Action System (Component-Based)
  * 
  * This module processes actions returned by AI agents and applies them to the component-based rocket state.
  * It provides a unified action dispatcher that handles all rocket modifications, simulations, and exports
@@ -13,8 +12,8 @@
  * - **Analysis Actions**: Stability calculations, performance analysis, Monte Carlo simulations
  * - **Environmental Actions**: Weather, atmospheric conditions, launch site configuration
  * 
- * @version 4.0.0 - Pure component-based architecture
- * @author ROCKETv1 Team
+ * @version 1.0.0 - Pure component-based architecture
+ * @author Rocketez Team
  */
 
 import { useRocket } from '@/lib/store';

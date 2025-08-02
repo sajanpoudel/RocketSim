@@ -19,13 +19,23 @@ class SimulationMotor:
     def __init__(self, motor_id: str):
         dbg_enter("SimulationMotor.__init__", motor_id=motor_id)
         self.motor_id = motor_id
+        
+        # 🔍 CRITICAL DEBUG: Log motor database access
+        logger.info(f"🔍 CORE MOTOR INIT: motor_id = {motor_id}")
+        logger.info(f"🔍 CORE MOTOR INIT: Available motors = {list(MOTOR_DATABASE.keys())}")
+        
         # ✅ FIXED: Validate frontend motor ID instead of silent fallback
         if motor_id not in MOTOR_DATABASE:
             if motor_id != "default-motor":
                 logger.error(f"❌ Invalid motor ID '{motor_id}' from frontend - motor not found in database")
                 available_motors = list(MOTOR_DATABASE.keys())
                 raise ValueError(f"Motor ID '{motor_id}' not found. Available motors: {available_motors}")
+        
         self.spec = MOTOR_DATABASE[motor_id]
+        
+        # 🔍 CRITICAL DEBUG: Log the loaded motor specifications
+        logger.info(f"🔍 CORE MOTOR INIT: Loaded spec = {self.spec}")
+        
         self.motor = None
         
         if not ROCKETPY_AVAILABLE:

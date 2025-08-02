@@ -1,6 +1,5 @@
 /**
- * ROCKETv1 - Database Integration Service
- * ======================================
+ * Rocketez - Database Integration Service
  * 
  * This service provides a database persistence layer for component-based rocket designs.
  * It stores and retrieves rocket designs using the professional component-based architecture
@@ -27,8 +26,8 @@
  * - SI unit consistency enforced
  * - Professional metadata tracking
  * 
- * @version 3.0.0 - Component-based architecture only
- * @author ROCKETv1 Team
+ * @version 1.0.0 - Component-based architecture only
+ * @author Rocketez Team
  */
 
 import { supabase, getCurrentUser } from '@/lib/database/supabase';

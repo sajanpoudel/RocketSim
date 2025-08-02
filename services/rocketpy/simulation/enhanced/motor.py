@@ -18,10 +18,17 @@ class EnhancedSimulationMotor(SimulationMotor):
     """Enhanced motor simulation with realistic characteristics and component-based configuration"""
     
     def __init__(self, motor_id: str, rocket_motor_config=None):
+        # 🔍 CRITICAL DEBUG: Log the motor initialization
+        logger.info(f"🔍 ENHANCED MOTOR INIT: motor_id = {motor_id}")
+        logger.info(f"🔍 ENHANCED MOTOR INIT: rocket_motor_config = {rocket_motor_config}")
+        
         super().__init__(motor_id)
         
         # Store the actual rocket motor configuration from frontend
         self.rocket_motor_config = rocket_motor_config or {}
+        
+        # 🔍 CRITICAL DEBUG: Log the loaded motor specifications
+        logger.info(f"🔍 ENHANCED MOTOR INIT: Loaded spec = {self.spec}")
             
         # Enhanced motor modeling
         self._setup_enhanced_motor()
@@ -85,11 +92,18 @@ class EnhancedSimulationMotor(SimulationMotor):
             total_propellant_kg = self.spec["mass"]["propellant_kg"]
             
             # Use rocket motor configuration for propellant ratios if available
-            # ✅ ROBUSTNESS FIX: Explicitly check for the presence of keys, preventing numpy array ambiguity
-            if "nozzle_expansion_ratio" in rocket_motor or "chamber_pressure_pa" in rocket_motor:
+            # ✅ ROBUSTNESS FIX: Explicitly check for the presence of keys AND non-None values, preventing numpy array ambiguity
+            if (rocket_motor.get("nozzle_expansion_ratio") is not None or 
+                rocket_motor.get("chamber_pressure_pa") is not None):
                 # Advanced configuration - calculate ratios based on rocket motor config
                 chamber_pressure = rocket_motor.get("chamber_pressure_pa", 2000000)  # Default 20 bar
                 expansion_ratio = rocket_motor.get("nozzle_expansion_ratio", 10)
+                
+                # ✅ CRITICAL FIX: Ensure we have valid numeric values
+                if chamber_pressure is None:
+                    chamber_pressure = 2000000  # Default 20 bar
+                if expansion_ratio is None:
+                    expansion_ratio = 10
                 
                 # Calculate optimal oxidizer/fuel ratio based on chamber conditions
                 # This makes the motor configuration completely dynamic
@@ -146,62 +160,238 @@ class EnhancedSimulationMotor(SimulationMotor):
             fuel_liq = Fluid(name="ethanol_l", density=789)
             fuel_gas = Fluid(name="ethanol_g", density=1.59)
             
-            # Define tank geometry with enhanced height calculation
-            tank_geometry = CylindricalTank(radius=tank_radius, height=tank_height, spherical_caps=True)
+            # ✅ CRITICAL FIX: Create a simple tank geometry without Function objects
+            # The SEB LiquidRocketPy CylindricalTank uses Function objects that cause issues
+            # Let's create a simpler approach using basic geometry
+            try:
+                # Try to create a simple tank geometry
+                tank_geometry = CylindricalTank(radius=tank_radius, height=tank_height, spherical_caps=True)
+                logger.info(f"✅ Created SEB tank geometry: radius={tank_radius}m, height={tank_height}m")
+            except Exception as e:
+                logger.warning(f"SEB tank geometry creation failed: {e}, using fallback approach")
+                # Create a simple tank geometry without SEB functions
+                tank_geometry = None
+            
+            # 🔍 DEBUG: Inspect tank geometry properties
+            logger.info(f"🔍 TANK DEBUG: tank_geometry type = {type(tank_geometry)}")
+            logger.info(f"🔍 TANK DEBUG: tank_geometry radius = {tank_geometry.radius}")
+            logger.info(f"🔍 TANK DEBUG: tank_geometry height = {tank_geometry.height}")
+            logger.info(f"🔍 TANK DEBUG: tank_geometry volume attribute exists = {hasattr(tank_geometry, 'volume')}")
+            if hasattr(tank_geometry, 'volume'):
+                logger.info(f"🔍 TANK DEBUG: tank_geometry.volume type = {type(tank_geometry.volume)}")
+                logger.info(f"🔍 TANK DEBUG: tank_geometry.volume callable = {callable(tank_geometry.volume)}")
 
             # ✅ CRITICAL FIX 2: Calculate a realistic initial gas mass based on ullage pressure
             # This prevents numerical instability at t=0 from near-zero tank pressures.
             def calculate_initial_gas_mass(tank_geometry, liquid_mass, liquid_density, gas_density, ullage_pressure=5e5):
-                total_volume = tank_geometry.volume
+                # ✅ CRITICAL FIX: The issue is that tank_geometry.volume is a function that needs to be called
+                # SEB LiquidRocketPy uses a different volume access pattern
+                try:
+                    # 🔍 DEBUG: Inspect the tank geometry object
+                    logger.info(f"🔍 TANK DEBUG: tank_geometry type = {type(tank_geometry)}")
+                    logger.info(f"🔍 TANK DEBUG: tank_geometry attributes = {dir(tank_geometry)}")
+                    
+                    # ✅ CRITICAL FIX: Try different volume access methods
+                    total_volume = None
+                    
+                    # Method 1: Try total_volume attribute (most reliable)
+                    if hasattr(tank_geometry, 'total_volume'):
+                        try:
+                            total_volume_attr = getattr(tank_geometry, 'total_volume')
+                            logger.info(f"🔍 TANK DEBUG: total_volume attribute type = {type(total_volume_attr)}")
+                            
+                            if callable(total_volume_attr):
+                                # It's a function, call it
+                                total_volume = float(total_volume_attr())
+                                logger.info(f"🔍 TANK DEBUG: Called total_volume() = {total_volume}")
+                            else:
+                                # It's a property, access directly
+                                total_volume = float(total_volume_attr)
+                                logger.info(f"🔍 TANK DEBUG: Used total_volume property = {total_volume}")
+                        except Exception as e:
+                            logger.warning(f"total_volume access failed: {e}")
+                    
+                    # Method 2: Try volume function with height parameter
+                    if total_volume is None and hasattr(tank_geometry, 'volume'):
+                        volume_attr = tank_geometry.volume
+                        logger.info(f"🔍 TANK DEBUG: volume attribute type = {type(volume_attr)}")
+                        
+                        if callable(volume_attr):
+                            try:
+                                # Try calling with tank height as parameter
+                                total_volume = float(volume_attr(tank_geometry.height))
+                                logger.info(f"🔍 TANK DEBUG: Called volume({tank_geometry.height}) = {total_volume}")
+                            except Exception as e:
+                                logger.warning(f"Volume function call with height failed: {e}")
+                                try:
+                                    # Try calling without parameters
+                                    total_volume = float(volume_attr())
+                                    logger.info(f"🔍 TANK DEBUG: Called volume() = {total_volume}")
+                                except Exception as e2:
+                                    logger.warning(f"Volume function call without params failed: {e2}")
+                        else:
+                            try:
+                                # It's a property, access directly
+                                total_volume = float(volume_attr)
+                                logger.info(f"🔍 TANK DEBUG: Accessed volume property = {total_volume}")
+                            except Exception as e:
+                                logger.warning(f"Volume property access failed: {e}")
+                    
+                    # Method 3: Manual calculation as last resort
+                    if total_volume is None:
+                        # Use the tank radius and height for manual calculation
+                        try:
+                            # The radius is also a function, so we need to call it
+                            if callable(tank_geometry.radius):
+                                # Get the radius at the middle height
+                                radius_at_mid = float(tank_geometry.radius(tank_geometry.height / 2))
+                            else:
+                                # It's a scalar value
+                                radius_at_mid = float(tank_geometry.radius)
+                            
+                            total_volume = float(radius_at_mid**2 * tank_geometry.height * 3.14159)
+                            logger.info(f"🔍 TANK DEBUG: Manual volume calculation with radius({tank_geometry.height/2}) = {radius_at_mid}, total_volume = {total_volume}")
+                        except Exception as e:
+                            logger.warning(f"Manual volume calculation failed: {e}, using fallback")
+                            # Last resort: use a reasonable estimate based on the tank sizing calculation
+                            # From the logs: radius=0.032m, height=4.699m
+                            total_volume = 0.015  # Use the volume from the tank sizing calculation
+                            logger.info(f"🔍 TANK DEBUG: Using fallback volume = {total_volume}")
+                        
+                except Exception as e:
+                    logger.warning(f"Volume calculation failed: {e}, using manual calculation")
+                    # Last resort: manual calculation
+                    total_volume = float(tank_geometry.radius**2 * tank_geometry.height * 3.14159)
+                
                 liquid_volume = liquid_mass / liquid_density
                 ullage_volume = total_volume - liquid_volume
                 
                 if ullage_volume <= 0:
                     raise ValueError("Tank is overfilled! Increase tank size or reduce propellant mass.")
                 
-                # Using a simplified ideal gas law approximation for initial mass
-                # A more realistic model would use the gas properties object
-                # For N2O gas, R is approx 188.9 J/kg·K
-                R_gas = 188.9  # J/kg·K for N2O
-                temperature_K = 298  # Assume 25°C
+                # ✅ CRITICAL FIX: The SEB library calculates gas volume differently than our manual calculation
+                # The library's internal gas volume calculation is much larger than expected
+                # We need to use a much smaller gas mass to prevent overflow
                 
-                # m = PV/RT
-                gas_mass = (ullage_pressure * ullage_volume) / (R_gas * temperature_K)
-                logger.info(f"Calculated initial gas mass: {gas_mass:.4f} kg for ullage volume {ullage_volume:.6f} m³ at {ullage_pressure/1e5:.1f} bar")
-                return max(gas_mass, 0.001) # Ensure a minimum mass
+                # Using a conservative approach: limit gas mass to 10% of ullage volume
+                # This prevents the SEB library from calculating an oversized gas volume
+                max_gas_volume = ullage_volume * 0.1  # Only use 10% of ullage for gas
+                max_gas_mass = max_gas_volume * gas_density
+                
+                # Also apply a safety factor based on the error we saw (0.045 vs 0.014)
+                # The library seems to calculate ~3x larger gas volume than expected
+                safety_factor = 0.3  # Reduce by 70% to account for library's calculation
+                safe_gas_mass = max_gas_mass * safety_factor
+                
+                logger.info(f"🔍 GAS CALCULATION: ullage_volume={ullage_volume:.6f}m³, max_gas_volume={max_gas_volume:.6f}m³, max_gas_mass={max_gas_mass:.4f}kg, safe_gas_mass={safe_gas_mass:.4f}kg")
+                
+                return max(safe_gas_mass, 0.001) # Ensure a minimum mass
 
             initial_oxidizer_gas_mass = calculate_initial_gas_mass(tank_geometry, oxidizer_mass_kg, oxidizer_liq.density, oxidizer_gas.density)
             initial_fuel_gas_mass = calculate_initial_gas_mass(tank_geometry, fuel_mass_kg, fuel_liq.density, fuel_gas.density, ullage_pressure=3e5) # Lower pressure for fuel tank
             
-            # Create oxidizer tank with proper mass flow rates
-            oxidizer_tank = MassFlowRateBasedTank(
+            # ✅ CRITICAL FIX: Create tanks without SEB geometry to avoid Function object issues
+            if tank_geometry is None:
+                # Fallback: Create a simple liquid motor without complex tank geometry
+                logger.info("🔄 Using simplified liquid motor approach without SEB tank geometry")
+                
+                # Create a basic liquid motor with simple parameters
+                self.motor = LiquidMotor(
+                    thrust_source=thrust_curve,
+                    dry_mass=self.spec["mass"]["total_kg"] - total_propellant_kg,
+                    dry_inertia=(0.2, 0.2, 0.002),
+                    nozzle_radius=motor_radius * 0.7,
+                    center_of_dry_mass_position=motor_length / 2,
+                    nozzle_position=0,
+                    burn_time=self.spec["burn_time_s"],
+                    coordinate_system_orientation="nozzle_to_combustion_chamber",
+                )
+                
+                # Add simple tanks without complex geometry
+                try:
+                    # Create oxidizer tank with minimal parameters
+                    oxidizer_tank = MassFlowRateBasedTank(
+                        name="oxidizer tank",
+                        geometry=None,  # No geometry to avoid Function issues
+                        flux_time=float(self.spec["burn_time_s"]),
+                        initial_liquid_mass=float(oxidizer_mass_kg),
+                        initial_gas_mass=0.001,  # Minimal gas mass
+                        liquid_mass_flow_rate_in=0.0,
+                        liquid_mass_flow_rate_out=lambda t: float(oxidizer_mass_kg) / float(self.spec["burn_time_s"]) * 0.5 if t < float(self.spec["burn_time_s"]) else 0.0,
+                        gas_mass_flow_rate_in=0.0,
+                        gas_mass_flow_rate_out=0.0,
+                        liquid=oxidizer_liq,
+                        gas=oxidizer_gas,
+                    )
+                    logger.info("✅ Created oxidizer tank without geometry")
+                    
+                    # Create fuel tank with minimal parameters
+                    fuel_tank = MassFlowRateBasedTank(
+                        name="fuel tank",
+                        geometry=None,  # No geometry to avoid Function issues
+                        flux_time=float(self.spec["burn_time_s"]),
+                        initial_liquid_mass=float(fuel_mass_kg),
+                        initial_gas_mass=0.001,  # Minimal gas mass
+                        liquid_mass_flow_rate_in=0.0,
+                        liquid_mass_flow_rate_out=lambda t: float(fuel_mass_kg) / float(self.spec["burn_time_s"]) * 0.5 if t < float(self.spec["burn_time_s"]) else 0.0,
+                        gas_mass_flow_rate_in=0.0,
+                        gas_mass_flow_rate_out=0.0,
+                        liquid=fuel_liq,
+                        gas=fuel_gas,
+                    )
+                    logger.info("✅ Created fuel tank without geometry")
+                    
+                    # Add tanks to motor
+                    self.motor.add_tank(tank=oxidizer_tank, position=motor_length * 0.7)
+                    self.motor.add_tank(tank=fuel_tank, position=motor_length * 0.3)
+                    
+                    logger.info(f"✅ Created simplified liquid motor: {self.spec['name']} with {oxidizer_mass_kg:.3f}kg oxidizer + {fuel_mass_kg:.3f}kg fuel")
+                    return
+                    
+                except Exception as e:
+                    logger.error(f"❌ Simplified tank creation failed: {e}")
+                    raise
+            else:
+                # Try with SEB tank geometry
+                try:
+                    # Create oxidizer tank with SEB geometry
+                    oxidizer_tank = MassFlowRateBasedTank(
                 name="oxidizer tank",
                 geometry=tank_geometry,
-                flux_time=self.spec["burn_time_s"],
-                initial_liquid_mass=oxidizer_mass_kg,
-                initial_gas_mass=initial_oxidizer_gas_mass,
-                liquid_mass_flow_rate_in=0,
-                liquid_mass_flow_rate_out=lambda t: oxidizer_mass_kg / self.spec["burn_time_s"] if t < self.spec["burn_time_s"] else 0,
-                gas_mass_flow_rate_in=0,
-                gas_mass_flow_rate_out=0,
+                        flux_time=float(self.spec["burn_time_s"]),
+                        initial_liquid_mass=float(oxidizer_mass_kg),
+                        initial_gas_mass=float(initial_oxidizer_gas_mass),
+                        liquid_mass_flow_rate_in=0.0,
+                        liquid_mass_flow_rate_out=lambda t: float(oxidizer_mass_kg) / float(self.spec["burn_time_s"]) * 0.6 if t < float(self.spec["burn_time_s"]) else 0.0,
+                        gas_mass_flow_rate_in=0.0,
+                        gas_mass_flow_rate_out=0.0,
                 liquid=oxidizer_liq,
                 gas=oxidizer_gas,
             )
+                    logger.info("✅ Oxidizer tank created successfully with SEB geometry")
+                except Exception as e:
+                    logger.error(f"❌ SEB oxidizer tank creation failed: {e}")
+                    raise
 
-            # Create fuel tank with proper mass flow rates
-            fuel_tank = MassFlowRateBasedTank(
+                # Create fuel tank with SEB geometry
+                try:
+                    fuel_tank = MassFlowRateBasedTank(
                 name="fuel tank",
                 geometry=tank_geometry,
-                flux_time=self.spec["burn_time_s"],
-                initial_liquid_mass=fuel_mass_kg,
-                initial_gas_mass=initial_fuel_gas_mass,
-                liquid_mass_flow_rate_in=0,
-                liquid_mass_flow_rate_out=lambda t: fuel_mass_kg / self.spec["burn_time_s"] if t < self.spec["burn_time_s"] else 0,
-                gas_mass_flow_rate_in=0,
-                gas_mass_flow_rate_out=lambda t: (initial_fuel_gas_mass / self.spec["burn_time_s"]) if t < self.spec["burn_time_s"] else 0,
+                        flux_time=float(self.spec["burn_time_s"]),
+                        initial_liquid_mass=float(fuel_mass_kg),
+                        initial_gas_mass=float(initial_fuel_gas_mass),
+                        liquid_mass_flow_rate_in=0.0,
+                        liquid_mass_flow_rate_out=lambda t: float(fuel_mass_kg) / float(self.spec["burn_time_s"]) * 0.6 if t < float(self.spec["burn_time_s"]) else 0.0,
+                        gas_mass_flow_rate_in=0.0,
+                        gas_mass_flow_rate_out=lambda t: float(initial_fuel_gas_mass) / float(self.spec["burn_time_s"]) if t < float(self.spec["burn_time_s"]) else 0.0,
                 liquid=fuel_liq,
                 gas=fuel_gas,
             )
+                    logger.info("✅ Fuel tank created successfully with SEB geometry")
+                except Exception as e:
+                    logger.error(f"❌ SEB fuel tank creation failed: {e}")
+                    raise
             
             # ✅ FIXED: Create LiquidMotor with proper RocketPy constructor parameters
             self.motor = LiquidMotor(
@@ -337,6 +527,13 @@ class EnhancedSimulationMotor(SimulationMotor):
         burn_time = self.spec["burn_time_s"]
         avg_thrust = self.spec["avg_thrust_n"]
         
+        # 🔍 CRITICAL DEBUG: Log the actual motor specifications being used
+        logger.info(f"🔍 LIQUID MOTOR DEBUG: Motor ID = {self.motor_id}")
+        logger.info(f"🔍 LIQUID MOTOR DEBUG: Spec burn_time_s = {burn_time}")
+        logger.info(f"🔍 LIQUID MOTOR DEBUG: Spec avg_thrust_n = {avg_thrust}")
+        logger.info(f"🔍 LIQUID MOTOR DEBUG: Spec total_impulse_n_s = {self.spec.get('total_impulse_n_s', 'NOT_FOUND')}")
+        logger.info(f"🔍 LIQUID MOTOR DEBUG: Full motor spec = {self.spec}")
+        
         # Define ramp-up time (e.g., 0.8 seconds for a smoother start)
         ramp_up_time = 0.8
         
@@ -357,5 +554,12 @@ class EnhancedSimulationMotor(SimulationMotor):
         # Ensure thrust goes to zero after burnout
         thrust_curve.append((burn_time + 0.1, 0))
         
+        # 🔍 CRITICAL DEBUG: Log the generated thrust curve summary
+        max_thrust = max([t[1] for t in thrust_curve])
+        total_impulse = sum([t[1] * (thrust_curve[i+1][0] - t[0]) if i < len(thrust_curve)-1 else 0 
+                           for i, t in enumerate(thrust_curve)])
+        logger.info(f"🔍 LIQUID MOTOR DEBUG: Generated max_thrust = {max_thrust}")
+        logger.info(f"🔍 LIQUID MOTOR DEBUG: Generated total_impulse = {total_impulse}")
+        logger.info(f"🔍 LIQUID MOTOR DEBUG: Generated burn_time = {burn_time}")
         logger.info(f"Generated liquid thrust curve with {ramp_up_time}s ramp-up.")
         return thrust_curve

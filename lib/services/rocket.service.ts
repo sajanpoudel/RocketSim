@@ -1,6 +1,5 @@
 /**
- * ROCKETv1 - AI-Powered Rocket Design Service
- * ===========================================
+ * Rocketez - AI-Powered Rocket Design Service
  * 
  * This service provides advanced rocket design management with AI-powered similarity search, semantic
  * embeddings, and intelligent design recommendations. It combines traditional database operations
@@ -42,8 +41,8 @@
  * - **Similarity Calculations**: Perform vector math via `/api/similarity` endpoint
  * - **Security**: All OpenAI API keys handled server-side for security
  * 
- * @version 3.0.0 - Component-based architecture only
- * @author ROCKETv1 Team
+ * @version 1.0.0 - Component-based architecture only
+ * @author Rocketez Team
  * @see {@link app/api/embeddings/route.ts} for embedding generation API
  * @see {@link app/api/similarity/route.ts} for vector similarity calculations
  * @see {@link supabase/migrations/20241201000000_add_vector_columns.sql} for database schema

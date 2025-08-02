@@ -27,7 +27,7 @@ RUN mkdir -p /usr/local/lib/python3.11/site-packages/geomagindices/data && \
 RUN mkdir -p /usr/local/lib/python3.11/site-packages/msise00/build && \
     chmod -R 777 /usr/local/lib/python3.11/site-packages/msise00
 
-# Copy application code
+# Copy application code (from services/rocketpy context)
 COPY . .
 
 # Create data directory for simulation results

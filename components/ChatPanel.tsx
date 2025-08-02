@@ -32,7 +32,7 @@ export default function ChatPanel({ activeAnalysis, onAnalysisClick, loadSession
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       role: 'assistant',
-      content: 'Welcome to ROCKETv1! I can help you design and optimize your rocket. What would you like to work on today?',
+      content: 'Welcome to Rocketez! I can help you design and optimize your rocket. What would you like to work on today?',
       agent: 'master'
     }
   ]);
@@ -224,7 +224,7 @@ export default function ChatPanel({ activeAnalysis, onAnalysisClick, loadSession
         setMessages([
           {
             role: 'assistant',
-            content: 'Welcome back to ROCKETv1! Your previous conversation has been restored. How can I help you today?',
+            content: 'Welcome back to Rocketez! Your previous conversation has been restored. How can I help you today?',
             agent: 'master'
           },
           ...formattedHistory

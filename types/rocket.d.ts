@@ -1,6 +1,5 @@
 /**
- * ROCKETv1 - TypeScript Type Definitions
- * =====================================
+ * Rocketez - TypeScript Type Definitions
  * 
  * This file contains all TypeScript interfaces and type definitions for the rocket engineering platform.
  * It provides strong typing for rocket components, simulation results, analysis data, and configuration objects.
@@ -20,8 +19,8 @@
  * - Physics simulation interfaces
  * - Database schema validation
  * 
- * @version 3.0.0 - Component-based architecture only
- * @author ROCKETv1 Team
+ * @version 1.0.0 - Component-based architecture only
+ * @author Rocketez Team
  */
 
 // ===========================

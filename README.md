@@ -1,19 +1,12 @@
-# 🚀 ROCKETv1 - AI-Powered Rocket Engineering Platform
+# 🚀 Rocketez - AI-Powered Rocket Engineering Platform
 
-An advanced rocket design and simulation platform featuring AI-powered design assistance, real-time 3D visualization, professional-grade physics simulation, and comprehensive database integration.
+A comprehensive rocket design and simulation platform that combines cutting-edge AI assistance with professional-grade physics simulation.
 
-## ⚡ Quick Start with Docker
+## 🚀 Quick Start
 
-### Prerequisites
-- Docker Desktop
-- Supabase account (free)
-- OpenAI API key
-- Weather API key (OpenWeatherMap recommended)
-
-### 1. Clone Repository
 ```bash
-git clone https://github.com/your-org/ROCKETv1.git
-cd ROCKETv1
+git clone https://github.com/your-org/rocketez.git
+cd rocketez
 ```
 
 ### 2. Set Up Environment
