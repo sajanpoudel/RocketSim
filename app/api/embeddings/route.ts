@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Generate embedding based on content type
-    let model = "text-embedding-3-small";
+    const model = "text-embedding-3-small";
     let processedText = text;
 
     // Optimize text processing based on type

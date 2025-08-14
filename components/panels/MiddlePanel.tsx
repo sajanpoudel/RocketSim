@@ -7,7 +7,8 @@ import {
   PerspectiveCamera, 
   Grid, 
   Environment, 
-  ContactShadows 
+  ContactShadows,
+  TransformControls
 } from '@react-three/drei'
 import * as THREE from 'three'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -15,6 +16,7 @@ import { useRocket } from '@/lib/store'
 import { getDefaultRocket } from '@/lib/data/templates'
 import { cn } from '@/lib/utils'
 import { getMotorOrDefault } from '@/lib/data/motors'
+import { dispatchActions } from '@/lib/ai/actions'
 
 // Import chat and analysis components
 import IntegratedChatPanel from '@/components/panels/IntegratedChatPanel'
@@ -27,6 +29,7 @@ import RecoveryTab from './pro-mode/RecoveryTab'
 import WeatherStatus from '@/components/WeatherStatus'
 import VersionHistoryTab from './pro-mode/VersionHistoryTab'
 import AtmosphericModelSelector from '@/components/AtmosphericModelSelector'
+import DesignEditorPanel from '@/components/panels/DesignEditorPanel'
 
 // Flame component for rocket engine
 function RocketFlame({ isLaunched, throttle = 0, preLaunchFire = false, countdownStage = 0 }: { 
@@ -138,7 +141,8 @@ function RocketModel({
   preLaunchFire = false,
   countdownStage = 0,
   setHoveredPart,
-  displayRocket
+  displayRocket,
+  activeFinIndex
 }: { 
   selected: boolean, 
   isLaunched: boolean,
@@ -147,7 +151,8 @@ function RocketModel({
   preLaunchFire?: boolean,
   countdownStage?: number,
   setHoveredPart: (part: string | null) => void,
-  displayRocket: any // Add displayRocket prop
+  displayRocket: any, // Add displayRocket prop
+  activeFinIndex: number
 }) {
   const rocketRef = useRef<THREE.Group>(null)
   
@@ -156,19 +161,28 @@ function RocketModel({
   
   // Get component-specific properties 
   const nosePart = rocket.nose_cone;
-  const bodyPart = rocket.body_tubes[0]; // Use first body tube
   const enginePart = rocket.motor;
   const finParts = rocket.fins || [];
   const parachuteParts = rocket.parachutes || [];
   
-  // Get fin cant angle from component data
-  const finCantAngle = finParts[0]?.cant_angle_deg || 0;
-  const finCount = finParts[0]?.fin_count || 3;
+  // Get fin cant angle from component data (active set)
+  const selectedFin = finParts[activeFinIndex] || finParts[0] || {};
+  const finCantAngle = selectedFin?.cant_angle_deg || 0;
+  const finCount = selectedFin?.fin_count || 3;
   
   // Calculate visual scaling factors
-  const visualScaleFactor = 4; // Scale up for better 3D visualization
-  const rawBodyRadius = bodyPart?.outer_radius_m || 0.05;
-  const bodyRadius = Math.max(rawBodyRadius * visualScaleFactor, 0.15); // Reasonable minimum for visibility
+  const visualScaleFactor = 4; // Scale up for better 3D visualization (radius)
+  // Build scaled body tubes stack (assume array order from top to bottom or single-tube)
+  const scaledTubes = (rocket.body_tubes || []).map((tube: any) => ({
+    id: tube.id,
+    radius: Math.max((tube.outer_radius_m || 0.05) * visualScaleFactor, 0.15),
+    length: (tube.length_m || 0.4) * 4,
+    color: tube.color || '#FFFFFF'
+  }));
+  const totalBodyLength = scaledTubes.reduce((s: number, t: { length: number }) => s + t.length, 0);
+  const stackBaseY = 1 - totalBodyLength / 2; // keep center near previous recoveryBayY=1
+  const bottomTubeRadius = scaledTubes.length > 0 ? scaledTubes[scaledTubes.length - 1].radius : Math.max(0.05 * visualScaleFactor, 0.15);
+  const bodyRadius = bottomTubeRadius;
   
   // Calculate component count for re-render tracking
   const componentCount = (nosePart ? 1 : 0) + rocket.body_tubes.length + rocket.fins.length + rocket.parachutes.length + (enginePart ? 1 : 0);
@@ -232,9 +246,10 @@ function RocketModel({
   const [partChangeKey, setPartChangeKey] = useState(0);
   useEffect(() => {
     // Watch for changes in specific component properties that affect rendering
+    const firstTube = rocket.body_tubes?.[0];
     const criticalValues = {
-      bodyDiameter: bodyPart?.outer_radius_m || 0,
-      bodyLength: bodyPart?.length_m || 0,
+      bodyDiameter: firstTube?.outer_radius_m || 0,
+      bodyLength: (rocket.body_tubes || []).reduce((sum: number, b: any) => sum + (b.length_m || 0), 0),
       finRoot: finParts[0]?.root_chord_m || 0,
       finSpan: finParts[0]?.span_m || 0,
       noseLength: nosePart?.length_m || 0,
@@ -250,21 +265,23 @@ function RocketModel({
       setPartChangeKey(prev => prev + 1);
       localStorage.setItem('rocketCriticalHash', criticalHash);
     }
-  }, [nosePart, bodyPart, finParts, componentCount]);
+  }, [nosePart, rocket.body_tubes, finParts, componentCount]);
 
   // DEBUG: Log component details
-  console.log("RocketModel: bodyPart from store:", bodyPart);
-  console.log("RocketModel: bodyPart outer_radius_m:", bodyPart?.outer_radius_m);
+  const firstTubeDebug = rocket.body_tubes?.[0];
+  console.log("RocketModel: first body tube:", firstTubeDebug);
+  console.log("RocketModel: first tube outer_radius_m:", firstTubeDebug?.outer_radius_m);
 
  
   // ✅ FIXED: Realistic rocket proportions like real rockets
-  const bodyLengthScaled = bodyPart?.length_m ? bodyPart.length_m * 4 : 8; // Taller for realistic proportions
+  const bodyLengthScaled = totalBodyLength > 0 ? totalBodyLength : 8;
   const noseLengthScaled = nosePart?.length_m ? nosePart.length_m * 3 : 2; // Longer, more aerodynamic nose
   const noseShape = nosePart?.shape || 'ogive';
   
   // Fin dimensions - FIXED: Realistic fin proportions  
-  const finRootScaled = finParts[0]?.root_chord_m ? finParts[0].root_chord_m * 4 : 2; 
-  const finSpanScaled = finParts[0]?.span_m ? finParts[0].span_m * 4 : 1.2;
+  const finRootScaled = selectedFin?.root_chord_m ? selectedFin.root_chord_m * 4 : 2; 
+  const finSpanScaled = selectedFin?.span_m ? selectedFin.span_m * 4 : 1.2;
+  const finSweepScaled = selectedFin?.sweep_length_m ? selectedFin.sweep_length_m * 4 : 0;
 
   // DEBUG: Log fin dimensions every render
   console.log("🔧 RocketModel: finParts from store:", finParts);
@@ -281,38 +298,45 @@ function RocketModel({
   const comprehensiveRenderKey = `${renderKey}-${partChangeKey}-components${componentCount}-fin-${finRootScaled.toFixed(3)}-${finSpanScaled.toFixed(3)}-body-${bodyRadius.toFixed(3)}-${bodyLengthScaled.toFixed(3)}`;
   console.log("🔧 RocketModel: comprehensiveRenderKey:", comprehensiveRenderKey);
   
-  // ✅ FIXED: Better proportioned upper/lower body design for recovery system
-  const upperBodyLength = bodyLengthScaled * 0.4; // Upper payload/recovery section (smaller)
-  const lowerBodyLength = bodyLengthScaled * 0.6; // Lower motor/fin section (larger)
-  
-  // Define the recovery bay position (between upper and lower body)
-  const recoveryBayY = 1; // Slightly elevated central reference point
-  
-  const upperBodyCenterY = recoveryBayY + upperBodyLength / 2;
-  const lowerBodyCenterY = recoveryBayY - lowerBodyLength / 2;
-  
-  const topOfUpperBodyY = recoveryBayY + upperBodyLength;
-  const bottomOfLowerBodyY = recoveryBayY - lowerBodyLength;
+  // ✅ Stack bounds
+  const topOfUpperBodyY = stackBaseY + bodyLengthScaled;
+  const bottomOfLowerBodyY = stackBaseY;
 
   // Nose cone positioning - at the top of upper body, make it MUCH sharper
   const noseConeBaseY = topOfUpperBodyY;
-  const noseConeCenterY = noseConeBaseY + noseLengthScaled / 2;
+  // Default center position for cone-like noses
+  let noseConeCenterY = noseConeBaseY + noseLengthScaled / 2;
+  // For elliptical (spherical-cap) nose, compute sphere radius to fit height and base radius
+  let ellipticalSphereRadius = 0;
+  let ellipticalThetaLength = Math.PI / 2;
+  if (noseShape === 'elliptical') {
+    const h = noseLengthScaled;
+    const r = bodyRadius * 0.98; // match base to body
+    const R = (r * r + h * h) / (2 * h);
+    ellipticalSphereRadius = R;
+    // theta measured from +Y axis; base plane at cos(theta0) = 1 - h/R
+    const cosTheta0 = Math.max(-1, Math.min(1, 1 - h / R));
+    ellipticalThetaLength = Math.acos(cosTheta0);
+    // Sphere center offset so base coincides with top of body
+    // Base plane in local space is at y = R - h; so world y should be noseConeBaseY
+    noseConeCenterY = noseConeBaseY - (R - h);
+  }
 
-  // Electronics bay - much smaller and at the junction
-  const electronicsBayCenterY = recoveryBayY;
+  // Electronics bay - place near the stack midline
+  const electronicsBayCenterY = stackBaseY + bodyLengthScaled * 0.5;
 
-  // Engine positioning - FIXED: Attached directly to body tube
-  const engineGroupCenterY = bottomOfLowerBodyY - 0.3; // Much closer to body
+  // Engine positioning - FIXED: Attached directly to bottom of body stack
+  const engineGroupCenterY = bottomOfLowerBodyY - 0.3;
   
-  // Parachute positioning - in upper body
-  const parachuteCenterY = upperBodyCenterY;
+  // Parachute positioning - in upper portion of the stack
+  const parachuteCenterY = stackBaseY + bodyLengthScaled * 0.75;
 
   // Flame positioning for the engine
   const engineNozzleTipY = engineGroupCenterY - 0.95; 
   const flameComponentPlacementY = engineNozzleTipY + 3;
   
-  // Fins positioning - FIXED: Connect body to engine seamlessly
-  const finCenterY = bottomOfLowerBodyY - 0.15; // Between body and engine
+  // Fins positioning - FIXED: Connect body to engine seamlessly (attach near bottom)
+  const finCenterY = bottomOfLowerBodyY - 0.15;
   
   // Trigger re-render when the bodyRadius changes
   const [prevBodyRadius, setPrevBodyRadius] = useState(bodyRadius);
@@ -483,44 +507,57 @@ function RocketModel({
       key={`rocket-${comprehensiveRenderKey}`}
       position={[0, 0.8, 0]}
     >
-      {/* Upper body - White like real rockets */}
-      <mesh position={[0, upperBodyCenterY, 0]} name="upper-airframe">
-        <cylinderGeometry 
-          key={dimensionKey + '-upper'} 
-          args={[bodyRadius, bodyRadius, upperBodyLength, 32]} 
+      {/* 3D Editing Gizmos */}
+      {!isLaunched && selected && (
+        <GizmoHandles
+          scaledTubes={scaledTubes}
+          stackBaseY={stackBaseY}
+          bodyRadius={bodyRadius}
+          topOfUpperBodyY={topOfUpperBodyY}
+          finCenterY={finCenterY}
+          finRootScaled={finRootScaled}
+          finSpanScaled={finSpanScaled}
+          finSweepScaled={finSweepScaled}
+          noseLengthScaled={noseLengthScaled}
+          finCantDeg={finCantAngle}
+          activeFinIndex={activeFinIndex}
         />
-        <meshStandardMaterial 
-          color={bodyPart?.color || "#FFFFFF"} 
-          metalness={0.1} 
-          roughness={0.3} 
-          emissive={getEmissive('airframe')}
-          emissiveIntensity={getEmissiveIntensity('airframe')}
-        />
-      </mesh>
-      
-      {/* Lower body - White like real rockets */}
-      <mesh position={[0, lowerBodyCenterY, 0]} name="lower-airframe">
-        <cylinderGeometry 
-          key={dimensionKey + '-lower'} 
-          args={[bodyRadius, bodyRadius, lowerBodyLength, 32]} 
-        />
-        <meshStandardMaterial 
-          color={bodyPart?.color || "#FFFFFF"}
-          metalness={0.1} 
-          roughness={0.3} 
-          emissive={getEmissive('airframe')}
-          emissiveIntensity={getEmissiveIntensity('airframe')}
-        />
-      </mesh>
-      
-      {/* Top ring */}
-      <mesh position={[0, topOfUpperBodyY, 0]}>
-        <torusGeometry 
-          key={dimensionKey + '-ring'} 
-          args={[bodyRadius, 0.03, 16, 32]} 
-        />
-        <meshStandardMaterial color="#FFFFFF" />
-      </mesh>
+      )}
+      {/* Body tubes stack */}
+      {scaledTubes.length === 0 ? (
+        <mesh position={[0, stackBaseY + bodyLengthScaled / 2, 0]} name="airframe">
+          <cylinderGeometry key={dimensionKey + '-default'} args={[bodyRadius, bodyRadius, bodyLengthScaled, 32]} />
+          <meshStandardMaterial 
+            color={"#FFFFFF"}
+            metalness={0.1}
+            roughness={0.3}
+            emissive={getEmissive('airframe')}
+            emissiveIntensity={getEmissiveIntensity('airframe')}
+          />
+        </mesh>
+      ) : (
+        (() => {
+          const meshes: any[] = []
+          let acc = 0
+          scaledTubes.forEach((t: { radius: number; length: number; color: string }, idx: number) => {
+            const centerY = stackBaseY + acc + t.length / 2
+            acc += t.length
+            meshes.push(
+              <mesh position={[0, centerY, 0]} key={`tube-${idx}`} name={idx === scaledTubes.length - 1 ? 'lower-airframe' : 'upper-airframe'}>
+                <cylinderGeometry key={`${dimensionKey}-tube-${idx}`} args={[t.radius, t.radius, t.length, 32]} />
+                <meshStandardMaterial
+                  color={t.color}
+                  metalness={0.1}
+                  roughness={0.3}
+                  emissive={getEmissive('airframe')}
+                  emissiveIntensity={getEmissiveIntensity('airframe')}
+                />
+              </mesh>
+            )
+          })
+          return meshes
+        })()
+      )}
       
       {/* Nose cone - Realistic aerodynamic design */}
       <mesh position={[0, noseConeCenterY, 0]} name="nosecone">
@@ -532,10 +569,10 @@ function RocketModel({
         ) : noseShape === 'elliptical' ? (
           <sphereGeometry 
             key={dimensionKey + '-nose-elliptical'} 
-            args={[bodyRadius, 16, 16, 0, Math.PI * 2, 0, Math.PI / 2]} 
+            args={[Math.max(ellipticalSphereRadius, bodyRadius * 1.001), 24, 18, 0, Math.PI * 2, 0, ellipticalThetaLength]} 
           />
         ) : (
-          /* Sharp, aerodynamic ogive nose cone */
+          /* Sharp, aerodynamic ogive nose cone (approximate) */
           <coneGeometry 
             key={dimensionKey + '-nose-ogive'} 
             args={[bodyRadius * 0.98, noseLengthScaled, 32]} 
@@ -600,7 +637,7 @@ function RocketModel({
             args={[0.05, finRootScaled, finSpanScaled]} 
           />
           <meshStandardMaterial 
-            color={finParts[0]?.color || "#2C3E50"} 
+            color={selectedFin?.color || "#2C3E50"} 
             metalness={0.4} 
             roughness={0.3} 
             emissive={getEmissive('fins')}
@@ -663,6 +700,157 @@ function RocketModel({
           countdownStage={preLaunchFire ? countdownStage : (highlightedPart === 'engine' ? 3 : 0)}
         />
       </group>
+    </group>
+  )
+}
+
+// Lightweight 3D gizmos for direct manipulation of key dimensions
+function GizmoHandles({
+  scaledTubes,
+  stackBaseY,
+  bodyRadius,
+  topOfUpperBodyY,
+  finCenterY,
+  finRootScaled,
+  finSpanScaled,
+  finSweepScaled,
+  noseLengthScaled,
+  finCantDeg,
+  activeFinIndex,
+}: any) {
+  const gizmoRef = useRef<any>(null)
+  const sweepRef = useRef<any>(null)
+  const cantRef = useRef<any>(null)
+
+  // Nose length handle: drag along +Y
+  const noseTipY = topOfUpperBodyY + noseLengthScaled
+  return (
+    <group>
+      {/* Nose length */}
+      <TransformControls
+        ref={gizmoRef}
+        mode="translate"
+        position={[0, noseTipY, 0]}
+        showX={false}
+        showZ={false}
+        onObjectChange={(e: any) => {
+          const pos = gizmoRef.current?.object?.position as THREE.Vector3
+          if (!pos) return
+          // Clamp to above base
+          const newLength = Math.max(0.05, pos.y - topOfUpperBodyY)
+          dispatchActions([{ action: 'update_nose_cone', props: { length_m: newLength / 3 } }])
+        }}
+      >
+        <mesh>
+          <boxGeometry args={[0.06, 0.06, 0.06]} />
+          <meshStandardMaterial color="#22d3ee" emissive="#0891b2" emissiveIntensity={0.6} />
+        </mesh>
+      </TransformControls>
+
+      {/* Body bottom radius (approx): drag outward in X */}
+      <TransformControls
+        mode="translate"
+        position={[bodyRadius, stackBaseY + 0.2, 0]}
+        showY={false}
+        showZ={false}
+        onObjectChange={() => {
+          // Infer radius from X offset
+          // Convert back to meters by dividing by visualScaleFactor (4)
+          const obj = (event?.target as any)?.object as THREE.Object3D
+          const x = (obj as any)?.position?.x ?? bodyRadius
+          const newRadiusVis = Math.max(0.1, x)
+          const radius_m = newRadiusVis / 4
+          dispatchActions([{ action: 'update_body_tube', index: (scaledTubes.length - 1), props: { outer_radius_m: radius_m } }])
+        }}
+      >
+        <mesh>
+          <boxGeometry args={[0.06, 0.06, 0.06]} />
+          <meshStandardMaterial color="#a78bfa" emissive="#7c3aed" emissiveIntensity={0.6} />
+        </mesh>
+      </TransformControls>
+
+      {/* Fin span: drag outward in X */}
+      <TransformControls
+        mode="translate"
+        position={[bodyRadius + finSpanScaled, finCenterY, 0]}
+        showY={false}
+        showZ={false}
+        onObjectChange={(e: any) => {
+          const obj = (e?.target as any)?.object as THREE.Object3D
+          // take X distance from body surface
+          const x = (obj as any)?.position?.x ?? (bodyRadius + finSpanScaled)
+          const spanVis = Math.max(0.2, x - bodyRadius)
+          const span_m = spanVis / 4
+          dispatchActions([{ action: 'update_fins', index: activeFinIndex, props: { span_m } }])
+        }}
+      >
+        <mesh>
+          <boxGeometry args={[0.06, 0.06, 0.06]} />
+          <meshStandardMaterial color="#34d399" emissive="#059669" emissiveIntensity={0.6} />
+        </mesh>
+      </TransformControls>
+
+      {/* Fin root chord: drag upward in Y */}
+      <TransformControls
+        mode="translate"
+        position={[bodyRadius + 0.2, finCenterY + finRootScaled / 2, 0]}
+        showX={false}
+        showZ={false}
+        onObjectChange={(e: any) => {
+          const obj = (e?.target as any)?.object as THREE.Object3D
+          const y = (obj as any)?.position?.y ?? (finCenterY + finRootScaled / 2)
+          const rootVis = Math.max(0.2, 2 * (y - finCenterY))
+          const root_m = rootVis / 4
+          dispatchActions([{ action: 'update_fins', index: activeFinIndex, props: { root_chord_m: root_m } }])
+        }}
+      >
+        <mesh>
+          <boxGeometry args={[0.06, 0.06, 0.06]} />
+          <meshStandardMaterial color="#fbbf24" emissive="#d97706" emissiveIntensity={0.6} />
+        </mesh>
+      </TransformControls>
+
+      {/* Fin sweep length: drag up in Y */}
+      <TransformControls
+        ref={sweepRef}
+        mode="translate"
+        position={[bodyRadius + 0.35, finCenterY + finSweepScaled, 0]}
+        showX={false}
+        showZ={false}
+        onObjectChange={() => {
+          const pos = sweepRef.current?.object?.position as THREE.Vector3
+          if (!pos) return
+          const sweepVis = Math.max(0, pos.y - finCenterY)
+          const sweep_length_m = sweepVis / 4
+          dispatchActions([{ action: 'update_fins', index: activeFinIndex, props: { sweep_length_m } }])
+        }}
+      >
+        <mesh>
+          <boxGeometry args={[0.06, 0.06, 0.06]} />
+          <meshStandardMaterial color="#60a5fa" emissive="#2563eb" emissiveIntensity={0.6} />
+        </mesh>
+      </TransformControls>
+
+      {/* Fin cant: rotate around Y */}
+      <TransformControls
+        ref={cantRef}
+        mode="rotate"
+        position={[bodyRadius + finSpanScaled / 2, finCenterY, 0]}
+        showX={false}
+        showZ={false}
+        onObjectChange={() => {
+          const obj = cantRef.current?.object as THREE.Object3D
+          if (!obj) return
+          const deg = THREE.MathUtils.radToDeg(obj.rotation.y || 0)
+          const cant_angle_deg = Math.max(-30, Math.min(30, deg))
+          dispatchActions([{ action: 'update_fins', index: activeFinIndex, props: { cant_angle_deg } }])
+        }}
+      >
+        <mesh rotation={[0, THREE.MathUtils.degToRad(finCantDeg || 0), 0] as any}>
+          <boxGeometry args={[0.06, 0.06, 0.06]} />
+          <meshStandardMaterial color="#ef4444" emissive="#b91c1c" emissiveIntensity={0.6} />
+        </mesh>
+      </TransformControls>
     </group>
   )
 }
@@ -845,7 +1033,7 @@ function DynamicCamera({
 }
 
 // Global tracking of rocket position for debugging - emergency backup
-let globalRocketY = -2.8; // Updated global reference
+const globalRocketY = -2.8; // Updated global reference
 
 // Add mouse event handler at the top level
 function MousePositionHandler() {
@@ -980,6 +1168,7 @@ function RocketSimulation({
           countdownStage={3} // Always max flame intensity
           setHoveredPart={setHoveredPart}
           displayRocket={displayRocket}
+          activeFinIndex={0}
       />
     </group>
     </>
@@ -1638,6 +1827,8 @@ export default function MiddlePanel({
   const [view, setView] = useState<'top' | 'side' | 'perspective'>('perspective');
   const [selectedPart, setSelectedPart] = useState<string | null>(null);
   const [isLaunched, setIsLaunched] = useState(false);
+  const [showDesignEditor, setShowDesignEditor] = useState(false);
+	const [activeFinIndex, setActiveFinIndex] = useState(0);
   
   // Analysis and chat state (integrated from RightPanel)
   const [metricsExpanded, setMetricsExpanded] = useState(false);
@@ -2042,6 +2233,14 @@ export default function MiddlePanel({
         {/* Floating Analysis Tabs - positioned over 3D area */}
         <div className="absolute top-6 right-6 z-30">
           <div className="flex flex-col space-y-3">
+            {/* Design editor toggle */}
+            <button
+              onClick={() => setShowDesignEditor((v)=>!v)}
+              className="w-12 h-12 rounded-full transition-all duration-300 flex items-center justify-center text-lg backdrop-blur-xl border shadow-lg relative overflow-hidden bg-black/40 text-white border-white/10 hover:bg-white/10 hover:border-white/20"
+              aria-label="Toggle Design Editor"
+            >
+              ✏️
+            </button>
             {analysisTypes.map((analysis, index) => (
               <motion.div
                 key={analysis.id}
@@ -2152,6 +2351,15 @@ export default function MiddlePanel({
           </Canvas>
         </div>
         
+        {/* Design editor overlay */}
+        {showDesignEditor && (
+          <DesignEditorPanel 
+            onClose={() => setShowDesignEditor(false)}
+            activeFinIndex={activeFinIndex}
+            setActiveFinIndex={setActiveFinIndex}
+          />
+        )}
+
         {/* UI elements - absolutely positioned over the canvas */}
         <div className={viewportControlsClass}>
           <ViewportControls view={view} setView={setView} isMobile={isMobile} />

@@ -82,6 +82,7 @@ export interface RocketState {
   simulationProgress: number;
   lastSimulationType: string;
   simulationMessage: string;
+  autoQuickSim: boolean;
   
   // Database integration state
   isDatabaseConnected: boolean;
@@ -125,6 +126,7 @@ export interface RocketState {
   setSimulationProgress: (progress: number) => void;
   setLastSimulationType: (type: string) => void;
   setSimulationMessage: (message: string) => void;
+  setAutoQuickSim: (enabled: boolean) => void;
   
   // Database actions
   saveCurrentRocket: () => Promise<void>;
@@ -177,6 +179,7 @@ export const useRocket = create<RocketState>()((set, get) => ({
   simulationProgress: 0,
   lastSimulationType: "standard",
   simulationMessage: "",
+  autoQuickSim: false,
   
   // Database state
   isDatabaseConnected: false,
@@ -446,6 +449,7 @@ export const useRocket = create<RocketState>()((set, get) => ({
   setSimulationProgress: (simulationProgress) => set({ simulationProgress }),
   setLastSimulationType: (lastSimulationType) => set({ lastSimulationType }),
   setSimulationMessage: (message) => set({ simulationMessage: message }),
+  setAutoQuickSim: (enabled) => set({ autoQuickSim: enabled }),
   
   // Database actions
   saveCurrentRocket: async () => {
@@ -821,7 +825,7 @@ export const useRocket = create<RocketState>()((set, get) => ({
             
             // Add rocket to savedRockets array if not already there
             const existingRocketIndex = state.savedRockets.findIndex(r => r.id === rocket.id);
-            let updatedSavedRockets = [...state.savedRockets];
+            const updatedSavedRockets = [...state.savedRockets];
             if (existingRocketIndex >= 0) {
               updatedSavedRockets[existingRocketIndex] = rocket;
             } else {

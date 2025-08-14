@@ -54,10 +54,13 @@ export default function SimulationTab({ onClose }: SimulationAnalysisProps = {})
     monteCarloResult,
     stabilityAnalysis,
     motorAnalysis,
-    recoveryPrediction
+    recoveryPrediction,
+    autoQuickSim,
+    setAutoQuickSim
   } = useRocket();
   const [selectedView, setSelectedView] = useState<"overview" | "detailed" | "events" | "analysis">("overview")
   const [isRunningSimulation, setIsRunningSimulation] = useState(false);
+  const [showSimulationSelection, setShowSimulationSelection] = useState(false);
 
   const runSimulation = async (fidelity: string) => {
     setIsRunningSimulation(true);
@@ -167,6 +170,9 @@ export default function SimulationTab({ onClose }: SimulationAnalysisProps = {})
     try {
       const { environment, launchParameters } = useRocket.getState();
 
+      // Reset simulation selection state
+      setShowSimulationSelection(false);
+
       // ✅ Guard clause to prevent simulation with incomplete data
       if (!environment || !launchParameters) {
         window.dispatchEvent(new CustomEvent('notification', {
@@ -255,8 +261,8 @@ export default function SimulationTab({ onClose }: SimulationAnalysisProps = {})
     }
   };
 
-  // If no simulation data and not running, show simulation controls
-  if (!sim && !isRunningSimulation) {
+  // If no simulation data and not running, or if user wants to select simulation mode, show simulation controls
+  if ((!sim && !isRunningSimulation) || showSimulationSelection) {
     return (
       <div className="h-full flex flex-col bg-black">
         {/* Header */}
@@ -264,46 +270,92 @@ export default function SimulationTab({ onClose }: SimulationAnalysisProps = {})
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-xl font-semibold text-white">Flight Simulation</h3>
-              <p className="text-sm text-gray-400">Run a simulation to see results</p>
+              <p className="text-sm text-gray-400">
+                {showSimulationSelection ? "Choose simulation mode" : "Run a simulation to see results"}
+              </p>
             </div>
-            {onClose && (
-              <button
-                onClick={onClose}
-                className="w-8 h-8 bg-slate-800/50 backdrop-blur-sm rounded-full flex items-center justify-center text-gray-400 hover:text-white transition-colors border border-slate-700/50"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            )}
+            <div className="flex items-center gap-2">
+              {showSimulationSelection && (
+                <button
+                  onClick={() => setShowSimulationSelection(false)}
+                  className="px-3 py-1.5 bg-slate-800/50 backdrop-blur-sm text-white rounded-lg text-sm hover:bg-slate-700/50 transition-colors border border-slate-700/50 flex items-center space-x-2"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                  </svg>
+                  <span>Back to Results</span>
+                </button>
+              )}
+              {onClose && (
+                <button
+                  onClick={onClose}
+                  className="w-8 h-8 bg-slate-800/50 backdrop-blur-sm rounded-full flex items-center justify-center text-gray-400 hover:text-white transition-colors border border-slate-700/50"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
         {/* Simulation Controls */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
-          {/* No Data State */}
+          {/* Auto Quick Sim Toggle */}
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4 }}
-            className="glass-strong rounded-xl p-8 bg-slate-800/50 border border-white/5 text-center"
+            transition={{ duration: 0.3 }}
+            className="flex items-center justify-between glass-strong rounded-xl p-4 bg-slate-800/50 border border-white/5"
           >
-            <motion.div
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              transition={{ delay: 0.2, type: "spring" }}
-              className="w-16 h-16 bg-slate-500/20 border border-slate-400/30 rounded-full flex items-center justify-center mx-auto mb-4"
+            <div className="flex items-center gap-2">
+              <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+              <span className="text-sm text-gray-300">Auto quick sim after edits</span>
+            </div>
+            <button
+              onClick={() => setAutoQuickSim(!autoQuickSim)}
+              className={cn(
+                "w-11 h-6 rounded-full border transition-colors",
+                autoQuickSim ? "bg-cyan-500/30 border-cyan-400/40" : "bg-white/5 border-white/10"
+              )}
+              aria-pressed={autoQuickSim}
             >
-              <span className="text-2xl">🚀</span>
-            </motion.div>
-            
-            <h3 className="text-lg font-medium text-white mb-2">
-              No Simulation Data Available
-            </h3>
-            <p className="text-gray-400 text-sm">
-              Run a simulation to analyze your rocket's performance and flight characteristics
-            </p>
+              <span
+                className={cn(
+                  "block w-5 h-5 bg-white rounded-full mt-0.5 ml-0.5 transition-transform",
+                  autoQuickSim ? "translate-x-5" : "translate-x-0"
+                )}
+              />
+            </button>
           </motion.div>
+          {/* No Data State - Only show when there's no simulation data */}
+          {!sim && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.4 }}
+              className="glass-strong rounded-xl p-8 bg-slate-800/50 border border-white/5 text-center"
+            >
+              <motion.div
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                transition={{ delay: 0.2, type: "spring" }}
+                className="w-16 h-16 bg-slate-500/20 border border-slate-400/30 rounded-full flex items-center justify-center mx-auto mb-4"
+              >
+                <span className="text-2xl">🚀</span>
+              </motion.div>
+              
+              <h3 className="text-lg font-medium text-white mb-2">
+                No Simulation Data Available
+              </h3>
+              <p className="text-gray-400 text-sm">
+                Run a simulation to analyze your rocket's performance and flight characteristics
+              </p>
+            </motion.div>
+          )}
 
           {/* Atmospheric Data Status */}
           <motion.div
@@ -526,7 +578,7 @@ export default function SimulationTab({ onClose }: SimulationAnalysisProps = {})
           </div>
           <div className="flex items-center space-x-3">
             <button
-              onClick={() => runSimulation(sim?.simulationFidelity || 'standard')}
+              onClick={() => setShowSimulationSelection(true)}
               className="px-3 py-1.5 bg-slate-800/50 backdrop-blur-sm text-white rounded-lg text-sm hover:bg-slate-700/50 transition-colors border border-slate-700/50 flex items-center space-x-2"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -537,7 +589,7 @@ export default function SimulationTab({ onClose }: SimulationAnalysisProps = {})
                   d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
                 />
               </svg>
-              <span>Re-run</span>
+              <span>New Simulation</span>
             </button>
             {onClose && (
               <button

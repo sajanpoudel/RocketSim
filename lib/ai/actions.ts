@@ -121,10 +121,10 @@ export async function runHighFiSim() {
     setSimulating(true);
     setSimulationProgress(0);
     
-    const response = await fetch('/api/hifi', {
+    const response = await fetch('/api/simulate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rocket, environment })
+      body: JSON.stringify({ rocket, environment, fidelity: 'hifi' })
     });
     
     if (!response.ok) {
@@ -141,6 +141,36 @@ export async function runHighFiSim() {
     
   } catch (error) {
     console.error('High-fidelity simulation failed:', error);
+  } finally {
+    useRocket.getState().setSimulating(false);
+    useRocket.getState().setSimulationProgress(100);
+  }
+}
+
+/**
+ * Run professional fidelity simulation using RocketPy service
+ */
+export async function runProfessionalSim() {
+  try {
+    const { rocket, environment, setSim, setSimulating, setSimulationProgress } = useRocket.getState();
+    setSimulating(true);
+    setSimulationProgress(0);
+    const response = await fetch('/api/simulate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rocket, environment, fidelity: 'professional' })
+    });
+    if (!response.ok) {
+      throw new Error(`Simulation failed: ${response.statusText}`);
+    }
+    const result = await response.json();
+    setSim({
+      ...result,
+      simulationFidelity: 'professional',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Professional simulation failed:', error);
   } finally {
     useRocket.getState().setSimulating(false);
     useRocket.getState().setSimulationProgress(100);
@@ -350,6 +380,184 @@ export function updateRocketProperties(rocket: Rocket, action: any): Rocket {
 }
 
 // ===========================================
+// BASIC MUTATION HELPERS (ADD/REMOVE/SCALE)
+// ===========================================
+
+function addBodyTubeHelper(rocket: Rocket, props: Partial<BodyComponent>): Rocket {
+  const newTube: BodyComponent = {
+    id: crypto.randomUUID(),
+    outer_radius_m: props.outer_radius_m ?? 0.05,
+    length_m: props.length_m ?? 0.4,
+    wall_thickness_m: props.wall_thickness_m ?? 0.003,
+    material_density_kg_m3: props.material_density_kg_m3 ?? MATERIALS.DENSITY_FIBERGLASS,
+    surface_roughness_m: props.surface_roughness_m ?? 1e-5,
+    color: props.color ?? '#8C8D91'
+  } as BodyComponent;
+  return { ...rocket, body_tubes: [...rocket.body_tubes, newTube] };
+}
+
+function removeBodyTubeHelper(rocket: Rocket, index: number): Rocket {
+  const tubes = [...rocket.body_tubes];
+  if (index < 0 || index >= tubes.length) return rocket;
+  tubes.splice(index, 1);
+  return { ...rocket, body_tubes: tubes };
+}
+
+function addFinSetHelper(rocket: Rocket, props: Partial<FinComponent>): Rocket {
+  const newFin: FinComponent = {
+    id: crypto.randomUUID(),
+    fin_count: props.fin_count ?? 3,
+    root_chord_m: props.root_chord_m ?? 0.08,
+    tip_chord_m: props.tip_chord_m ?? 0.04,
+    span_m: props.span_m ?? 0.06,
+    sweep_length_m: props.sweep_length_m ?? 0.02,
+    thickness_m: props.thickness_m ?? 0.006,
+    material_density_kg_m3: props.material_density_kg_m3 ?? MATERIALS.DENSITY_PLYWOOD,
+    airfoil: props.airfoil ?? 'symmetric',
+    cant_angle_deg: props.cant_angle_deg ?? 0.0,
+    color: props.color ?? '#A0A7B8'
+  } as FinComponent;
+  return { ...rocket, fins: [...rocket.fins, newFin] };
+}
+
+function removeFinSetHelper(rocket: Rocket, index: number): Rocket {
+  const fins = [...rocket.fins];
+  if (index < 0 || index >= fins.length) return rocket;
+  fins.splice(index, 1);
+  return { ...rocket, fins };
+}
+
+function addParachuteHelper(rocket: Rocket, props: Partial<ParachuteComponent>): Rocket {
+  const newPara: ParachuteComponent = {
+    id: crypto.randomUUID(),
+    name: props.name ?? 'Parachute',
+    cd_s_m2: props.cd_s_m2 ?? 1.0,
+    trigger: props.trigger ?? 'apogee',
+    sampling_rate_hz: props.sampling_rate_hz ?? 105.0,
+    lag_s: props.lag_s ?? 1.5,
+    noise_bias: props.noise_bias ?? 0,
+    noise_deviation: props.noise_deviation ?? 8.3,
+    noise_correlation: props.noise_correlation ?? 0.5,
+    position_from_tail_m: props.position_from_tail_m ?? 0,
+    color: props.color ?? '#FF6B35'
+  } as ParachuteComponent;
+  return { ...rocket, parachutes: [...rocket.parachutes, newPara] };
+}
+
+function removeParachuteHelper(rocket: Rocket, index: number): Rocket {
+  const parachutes = [...rocket.parachutes];
+  if (index < 0 || index >= parachutes.length) return rocket;
+  parachutes.splice(index, 1);
+  return { ...rocket, parachutes };
+}
+
+function scaleRocketHelper(rocket: Rocket, scale: number): Rocket {
+  if (!Number.isFinite(scale) || scale <= 0) return rocket;
+  const scaledNose = {
+    ...rocket.nose_cone,
+    length_m: rocket.nose_cone.length_m * scale,
+    base_radius_m: (rocket.nose_cone.base_radius_m ?? 0) * scale || undefined,
+    wall_thickness_m: rocket.nose_cone.wall_thickness_m * scale
+  };
+  const scaledBodies = rocket.body_tubes.map(b => ({
+    ...b,
+    outer_radius_m: b.outer_radius_m * scale,
+    length_m: b.length_m * scale,
+    wall_thickness_m: b.wall_thickness_m * scale
+  }));
+  const scaledFins = rocket.fins.map(f => ({
+    ...f,
+    root_chord_m: f.root_chord_m * scale,
+    tip_chord_m: f.tip_chord_m * scale,
+    span_m: f.span_m * scale,
+    sweep_length_m: f.sweep_length_m * scale,
+    thickness_m: f.thickness_m * scale
+  }));
+  const scaledParas = rocket.parachutes.map(p => ({
+    ...p,
+    position_from_tail_m: p.position_from_tail_m * scale
+  }));
+  const scaledMotor = {
+    ...rocket.motor,
+    position_from_tail_m: rocket.motor.position_from_tail_m * scale
+  };
+  return {
+    ...rocket,
+    nose_cone: scaledNose,
+    body_tubes: scaledBodies,
+    fins: scaledFins,
+    parachutes: scaledParas,
+    motor: scaledMotor
+  };
+}
+
+// ===========================================
+// ANALYSIS/UTILITY ACTIONS
+// ===========================================
+
+function actionAnalyzeComponentMass() {
+  try {
+    const { rocket, setSimulationMessage } = useRocket.getState();
+    const nose = calculateComponentMass(rocket.nose_cone);
+    const bodies = rocket.body_tubes.reduce((s, b) => s + calculateComponentMass(b), 0);
+    const fins = rocket.fins.reduce((s, f) => s + calculateComponentMass(f), 0);
+    const estOther = 0.5;
+    const total = nose + bodies + fins + estOther;
+    const msg = [
+      '=== COMPONENT MASS BREAKDOWN ===',
+      `Nose: ${nose.toFixed(3)} kg`,
+      `Bodies: ${bodies.toFixed(3)} kg`,
+      `Fins: ${fins.toFixed(3)} kg`,
+      `Other: ${estOther.toFixed(3)} kg`,
+      `Total (approx): ${total.toFixed(3)} kg`
+    ].join('\n');
+    setSimulationMessage(msg);
+  } catch (e) {
+    console.error('Failed component mass analysis', e);
+  }
+}
+
+function actionCalculateCenterOfMass() {
+  try {
+    const { rocket, setSimulationMessage } = useRocket.getState();
+    const com = calculateCenterOfMass(rocket);
+    setSimulationMessage(`Center of Mass (approx): ${com.toFixed(3)} m from nose origin`);
+  } catch (e) {
+    console.error('Failed CoM calculation', e);
+  }
+}
+
+function actionCalculateCenterOfPressure() {
+  try {
+    const { rocket, setSimulationMessage } = useRocket.getState();
+    const cp = calculateCenterOfPressure(rocket);
+    setSimulationMessage(`Center of Pressure (approx): ${cp.toFixed(3)} m from nose origin`);
+  } catch (e) {
+    console.error('Failed CoP calculation', e);
+  }
+}
+
+function actionOptimizeFinDesign(targetStabilityMargin: number = 2.0) {
+  try {
+    const { rocket, updateRocket } = useRocket.getState();
+    const currentCom = calculateCenterOfMass(rocket);
+    const currentCp = calculateCenterOfPressure(rocket);
+    const currentSm = currentCp - currentCom;
+    const scale = currentSm > 0 ? Math.min(1.25, Math.max(0.8, targetStabilityMargin / currentSm)) : 1.1;
+    updateRocket((r) => ({
+      ...r,
+      fins: r.fins.map(f => ({
+        ...f,
+        root_chord_m: f.root_chord_m * scale,
+        span_m: f.span_m * scale
+      }))
+    }));
+  } catch (e) {
+    console.error('Failed to optimize fin design', e);
+  }
+}
+
+// ===========================================
 // ENVIRONMENTAL ACTIONS  
 // ===========================================
 
@@ -499,9 +707,9 @@ export function analyzeEnvironmentalImpact(action: any) {
   try {
     const { environment, launchParameters, rocket, setSimulationMessage } = useRocket.getState();
     
-    let analysis = [];
-    let warnings = [];
-    let recommendations = [];
+    const analysis = [];
+    const warnings = [];
+    const recommendations = [];
     
     // Wind analysis
     if (environment.wind_speed_m_s > 10) {
@@ -770,8 +978,8 @@ export function analyzeComprehensiveEnvironment(action: any) {
     const richData = syncEnvironmentFromGlobal();
     const storeEnv = useRocket.getState().environment;
     
-    let analysis: string[] = [];
-    let warnings: string[] = [];
+    const analysis: string[] = [];
+    const warnings: string[] = [];
     
     if (richData?.temperature !== undefined) {
       if (richData.temperature < 0) {
@@ -931,7 +1139,7 @@ export function analyzeStability(params: any) {
     const staticMargin = centerOfPressure - centerOfMass;
     
     let rating = "Unknown";
-    let recommendations: string[] = [];
+    const recommendations: string[] = [];
     
     if (staticMargin < 0) {
       rating = "Unstable";
@@ -971,7 +1179,7 @@ export function optimizeDesign(params: any) {
   try {
     const { rocket, updateRocket } = useRocket.getState();
     
-    let optimizedRocket = { ...rocket };
+    const optimizedRocket = { ...rocket };
     
     switch (params.objective) {
       case "altitude":
@@ -1105,6 +1313,7 @@ export function dispatchActions(actions: any[]) {
           break;
           
         case "update_fins":
+        case "update_fin_set":
           updateRocket((rocket) => updateFinSet(rocket, action));
           break;
           
@@ -1127,6 +1336,8 @@ export function dispatchActions(actions: any[]) {
             runQuickSim();
           } else if (action.fidelity === "hifi") {
             runHighFiSim();
+          } else if (action.fidelity === "professional") {
+            runProfessionalSim();
           } else if (action.fidelity === "monte_carlo") {
             runMonteCarloSimulation(action);
           } else {
@@ -1145,6 +1356,47 @@ export function dispatchActions(actions: any[]) {
           
         case "optimize_design":
           optimizeDesign(action);
+          break;
+
+        case "analyze_component_mass":
+          actionAnalyzeComponentMass();
+          break;
+        case "calculate_center_of_mass":
+          actionCalculateCenterOfMass();
+          break;
+        case "calculate_center_of_pressure":
+          actionCalculateCenterOfPressure();
+          break;
+        case "optimize_fin_design":
+          actionOptimizeFinDesign(action?.props?.target_stability_margin ?? action?.target_stability_margin ?? 2.0);
+          break;
+        case "scale_rocket":
+          updateRocket((rocket) => scaleRocketHelper(rocket, action?.props?.scale_factor ?? action?.scale_factor ?? 1));
+          break;
+        case "generate_manufacturing_tolerances":
+        case "validate_structural_integrity":
+          useRocket.getState().setSimulationMessage('Engineering analysis requested: ' + action.action);
+          break;
+
+        // ADD/REMOVE COMPONENTS
+        case "add_body_tube":
+          updateRocket((rocket) => addBodyTubeHelper(rocket, extractActionProps(action)));
+          break;
+        case "remove_body_tube":
+          updateRocket((rocket) => removeBodyTubeHelper(rocket, action.index ?? 0));
+          break;
+        case "add_fin_set":
+        case "add_fins":
+          updateRocket((rocket) => addFinSetHelper(rocket, extractActionProps(action)));
+          break;
+        case "remove_fin_set":
+          updateRocket((rocket) => removeFinSetHelper(rocket, action.index ?? 0));
+          break;
+        case "add_parachute":
+          updateRocket((rocket) => addParachuteHelper(rocket, extractActionProps(action)));
+          break;
+        case "remove_parachute":
+          updateRocket((rocket) => removeParachuteHelper(rocket, action.index ?? 0));
           break;
 
         // ENVIRONMENTAL ACTIONS
@@ -1205,4 +1457,34 @@ export function dispatchActions(actions: any[]) {
       console.error(`❌ Error processing action ${action.action}:`, error);
     }
   });
+
+  try {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('rocketActionsDispatched', { detail: { actions } }));
+    }
+  } catch (_e) {
+    // ignore
+  }
+
+  // Auto quick sim after edits (debounced)
+  try {
+    const state = useRocket.getState();
+    if (state.autoQuickSim && Array.isArray(actions) && actions.some(a => typeof a?.action === 'string' && a.action.startsWith('update_'))) {
+      scheduleAutoQuickSim();
+    }
+  } catch (_e) {}
 } 
+
+// Debounce helper for auto quick sim
+let autoQuickSimTimer: any = null;
+function scheduleAutoQuickSim(delayMs: number = 800) {
+  if (autoQuickSimTimer) {
+    clearTimeout(autoQuickSimTimer);
+  }
+  autoQuickSimTimer = setTimeout(() => {
+    try {
+      runQuickSim();
+    } catch (_e) {}
+    autoQuickSimTimer = null;
+  }, delayMs);
+}
