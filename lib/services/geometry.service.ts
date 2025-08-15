@@ -9,6 +9,7 @@
 import * as THREE from 'three';
 import { NoseComponent, BodyComponent, FinComponent } from '@/types/rocket';
 import { PrintingMaterialSpec, calculateOptimalWallThickness } from '@/lib/data/materials';
+import { csgService } from './csg.service';
 
 export interface GeometryResult {
   geometry: THREE.BufferGeometry;
@@ -114,66 +115,20 @@ export class ComponentGeometryGenerator {
     const baseRadius = component.base_radius_m || 0.025;
     const wallThickness_m = wallThickness / 1000; // Convert mm to m
     
-    // Ogive parameters
-    // For a tangent ogive: ρ = R² + L² / (2R)
-    // where ρ is the radius of the circle, R is base radius, L is length
+    // Calculate tangent ogive radius
     const rho = (baseRadius * baseRadius + length * length) / (2 * baseRadius);
     
-    // Generate points for ogive curve
+    // Create proper hollow ogive shell using LatheGeometry
     const segments = 32;
     const points: THREE.Vector3[] = [];
     
-    for (let i = 0; i <= segments; i++) {
-      const t = i / segments;
-      const angle = t * Math.PI / 2; // 0 to π/2 radians
-      
-      // Ogive equation: x = ρ*cos(θ) - (ρ - L), y = ρ*sin(θ) - (ρ - R)
-      const x = rho * Math.cos(angle) - (rho - length);
-      const y = rho * Math.sin(angle) - (rho - baseRadius);
-      
-      // Outer surface
-      points.push(new THREE.Vector3(x, y, 0));
-      // Inner surface (wall thickness)
-      const innerY = Math.max(0, y - wallThickness_m);
-      points.push(new THREE.Vector3(x, innerY, 0));
-    }
-    
-    // Create lathe geometry
-    const shape = new THREE.Shape();
-    shape.moveTo(points[0].x, points[0].y);
-    
-    for (let i = 1; i < points.length; i += 2) {
-      shape.lineTo(points[i].x, points[i].y);
-    }
-    
-    // Close the shape
-    shape.lineTo(points[points.length - 1].x, 0);
-    shape.lineTo(0, 0);
-    
-    const geometry = new THREE.LatheGeometry(shape.getPoints(32), 32);
-    return geometry;
-  }
-  
-  /**
-   * Generate conical nose cone geometry
-   */
-  private generateConicalGeometry(
-    component: NoseComponent, 
-    wallThickness: number
-  ): THREE.BufferGeometry {
-    const length = component.length_m;
-    const baseRadius = component.base_radius_m || 0.025;
-    const wallThickness_m = wallThickness / 1000; // Convert mm to m
-    
-    // Create conical shell using lathe geometry
-    const segments = 32;
-    const points: THREE.Vector3[] = [];
-    
-    // Generate points for conical profile
+    // Generate points for ogive profile
     for (let i = 0; i <= segments; i++) {
       const t = i / segments;
       const x = length * (1 - t);
-      const y = baseRadius * t;
+      
+      // Parametric equations for tangent ogive
+      const y = Math.sqrt(rho * rho - (length - x) * (length - x)) + rho - length;
       
       // Outer surface
       points.push(new THREE.Vector3(x, y, 0));
@@ -182,152 +137,7 @@ export class ComponentGeometryGenerator {
       points.push(new THREE.Vector3(x, innerY, 0));
     }
     
-    // Create lathe geometry
-    const shape = new THREE.Shape();
-    shape.moveTo(points[0].x, points[0].y);
-    
-    for (let i = 1; i < points.length; i += 2) {
-      shape.lineTo(points[i].x, points[i].y);
-    }
-    
-    // Close the shape
-    shape.lineTo(points[points.length - 1].x, 0);
-    shape.lineTo(0, 0);
-    
-    const geometry = new THREE.LatheGeometry(shape.getPoints(32), 32);
-    return geometry;
-  }
-  
-  /**
-   * Generate elliptical nose cone geometry
-   */
-  private generateEllipticalGeometry(
-    component: NoseComponent, 
-    wallThickness: number
-  ): THREE.BufferGeometry {
-    const length = component.length_m;
-    const baseRadius = component.base_radius_m || 0.025;
-    const wallThickness_m = wallThickness / 1000; // Convert mm to m
-    
-    // Elliptical parameters
-    const a = length; // Semi-major axis (length)
-    const b = baseRadius; // Semi-minor axis (base radius)
-    
-    // Generate elliptical curve using proper elliptical equation
-    const segments = 32;
-    const points: THREE.Vector3[] = [];
-    
-    for (let i = 0; i <= segments; i++) {
-      const t = i / segments;
-      const angle = t * Math.PI / 2; // 0 to π/2 radians
-      
-      // Elliptical equation: x = a*cos(θ), y = b*sin(θ)
-      const x = a * Math.cos(angle);
-      const y = b * Math.sin(angle);
-      
-      // Outer surface
-      points.push(new THREE.Vector3(x, y, 0));
-      // Inner surface (wall thickness)
-      const innerY = Math.max(0, y - wallThickness_m);
-      points.push(new THREE.Vector3(x, innerY, 0));
-    }
-    
-    // Create lathe geometry
-    const shape = new THREE.Shape();
-    shape.moveTo(points[0].x, points[0].y);
-    
-    for (let i = 1; i < points.length; i += 2) {
-      shape.lineTo(points[i].x, points[i].y);
-    }
-    
-    // Close the shape
-    shape.lineTo(points[points.length - 1].x, 0);
-    shape.lineTo(0, 0);
-    
-    const geometry = new THREE.LatheGeometry(shape.getPoints(32), 32);
-    return geometry;
-  }
-  
-  /**
-   * Generate parabolic nose cone geometry
-   */
-  private generateParabolicGeometry(
-    component: NoseComponent, 
-    wallThickness: number
-  ): THREE.BufferGeometry {
-    const length = component.length_m;
-    const baseRadius = component.base_radius_m || 0.025;
-    const wallThickness_m = wallThickness / 1000; // Convert mm to m
-    
-    // Parabolic parameters
-    // For a parabola: y² = 4px where p is the focal length
-    // At x = length, y = baseRadius, so: baseRadius² = 4p*length
-    // Therefore: p = baseRadius² / (4*length)
-    const p = (baseRadius * baseRadius) / (4 * length);
-    
-    // Generate parabolic curve using proper parabolic equation
-    const segments = 32;
-    const points: THREE.Vector3[] = [];
-    
-    for (let i = 0; i <= segments; i++) {
-      const t = i / segments;
-      const x = length * (1 - t * t); // x goes from length to 0
-      
-      // Parabolic equation: y² = 4px, so y = ±√(4px)
-      const y = Math.sqrt(4 * p * x);
-      
-      // Outer surface
-      points.push(new THREE.Vector3(x, y, 0));
-      // Inner surface (wall thickness)
-      const innerY = Math.max(0, y - wallThickness_m);
-      points.push(new THREE.Vector3(x, innerY, 0));
-    }
-    
-    // Create lathe geometry
-    const shape = new THREE.Shape();
-    shape.moveTo(points[0].x, points[0].y);
-    
-    for (let i = 1; i < points.length; i += 2) {
-      shape.lineTo(points[i].x, points[i].y);
-    }
-    
-    // Close the shape
-    shape.lineTo(points[points.length - 1].x, 0);
-    shape.lineTo(0, 0);
-    
-    const geometry = new THREE.LatheGeometry(shape.getPoints(32), 32);
-    return geometry;
-  }
-  
-  /**
-   * Generate cylindrical shell geometry for body tubes
-   */
-  private generateCylindricalShellGeometry(
-    outerRadius: number,
-    length: number,
-    wallThickness: number
-  ): THREE.BufferGeometry {
-    const wallThickness_m = wallThickness / 1000; // Convert mm to m
-    const innerRadius = Math.max(0, outerRadius - wallThickness_m);
-    
-    // Create cylindrical shell using lathe geometry
-    const segments = 32;
-    const points: THREE.Vector3[] = [];
-    
-    // Generate points for cylindrical shell profile
-    // Start at the base (x = 0)
-    points.push(new THREE.Vector3(0, outerRadius, 0));           // Outer surface at base
-    points.push(new THREE.Vector3(0, innerRadius, 0));           // Inner surface at base
-    
-    // Middle section (x = length/2)
-    points.push(new THREE.Vector3(length/2, outerRadius, 0));    // Outer surface at middle
-    points.push(new THREE.Vector3(length/2, innerRadius, 0));    // Inner surface at middle
-    
-    // End at the tip (x = length)
-    points.push(new THREE.Vector3(length, outerRadius, 0));      // Outer surface at tip
-    points.push(new THREE.Vector3(length, innerRadius, 0));      // Inner surface at tip
-    
-    // Create lathe geometry
+    // Create lathe geometry for hollow ogive shell
     const shape = new THREE.Shape();
     shape.moveTo(points[0].x, points[0].y);
     
@@ -344,7 +154,205 @@ export class ComponentGeometryGenerator {
     // Close the shape
     shape.lineTo(points[0].x, points[0].y);
     
-    const geometry = new THREE.LatheGeometry(shape.getPoints(32), 32);
+    const geometry = new THREE.LatheGeometry(shape.getPoints(segments), segments);
+    return geometry;
+  }
+  
+  /**
+   * Generate conical nose cone geometry
+   */
+  private generateConicalGeometry(
+    component: NoseComponent, 
+    wallThickness: number
+  ): THREE.BufferGeometry {
+    const length = component.length_m;
+    const baseRadius = component.base_radius_m || 0.025;
+    const wallThickness_m = wallThickness / 1000; // Convert mm to m
+    
+    // Create proper hollow conical shell using LatheGeometry
+    const segments = 32;
+    const points: THREE.Vector3[] = [];
+    
+    // Generate points for conical profile
+    for (let i = 0; i <= segments; i++) {
+      const t = i / segments;
+      const x = length * (1 - t);
+      const y = baseRadius * t;
+      
+      // Outer surface
+      points.push(new THREE.Vector3(x, y, 0));
+      // Inner surface (wall thickness)
+      const innerY = Math.max(0, y - wallThickness_m);
+      points.push(new THREE.Vector3(x, innerY, 0));
+    }
+    
+    // Create lathe geometry for hollow conical shell
+    const shape = new THREE.Shape();
+    shape.moveTo(points[0].x, points[0].y);
+    
+    // Create the outer wall
+    for (let i = 0; i < points.length; i += 2) {
+      shape.lineTo(points[i].x, points[i].y);
+    }
+    
+    // Create the inner wall (reverse direction)
+    for (let i = points.length - 1; i >= 1; i -= 2) {
+      shape.lineTo(points[i].x, points[i].y);
+    }
+    
+    // Close the shape
+    shape.lineTo(points[0].x, points[0].y);
+    
+    const geometry = new THREE.LatheGeometry(shape.getPoints(segments), segments);
+    return geometry;
+  }
+  
+  /**
+   * Generate elliptical nose cone geometry
+   */
+  private generateEllipticalGeometry(
+    component: NoseComponent, 
+    wallThickness: number
+  ): THREE.BufferGeometry {
+    const length = component.length_m;
+    const baseRadius = component.base_radius_m || 0.025;
+    const wallThickness_m = wallThickness / 1000; // Convert mm to m
+    
+    // Create proper hollow elliptical shell using LatheGeometry
+    const segments = 32;
+    const points: THREE.Vector3[] = [];
+    
+    // Generate points for elliptical profile
+    for (let i = 0; i <= segments; i++) {
+      const t = i / segments;
+      const angle = t * Math.PI / 2; // 0 to π/2 radians
+      
+      // Parametric equations for ellipse: x = a*cos(θ), y = b*sin(θ)
+      const x = length * Math.cos(angle);
+      const y = baseRadius * Math.sin(angle);
+      
+      // Outer surface
+      points.push(new THREE.Vector3(x, y, 0));
+      // Inner surface (wall thickness)
+      const innerY = Math.max(0, y - wallThickness_m);
+      points.push(new THREE.Vector3(x, innerY, 0));
+    }
+    
+    // Create lathe geometry for hollow elliptical shell
+    const shape = new THREE.Shape();
+    shape.moveTo(points[0].x, points[0].y);
+    
+    // Create the outer wall
+    for (let i = 0; i < points.length; i += 2) {
+      shape.lineTo(points[i].x, points[i].y);
+    }
+    
+    // Create the inner wall (reverse direction)
+    for (let i = points.length - 1; i >= 1; i -= 2) {
+      shape.lineTo(points[i].x, points[i].y);
+    }
+    
+    // Close the shape
+    shape.lineTo(points[0].x, points[0].y);
+    
+    const geometry = new THREE.LatheGeometry(shape.getPoints(segments), segments);
+    return geometry;
+  }
+  
+  /**
+   * Generate parabolic nose cone geometry
+   */
+  private generateParabolicGeometry(
+    component: NoseComponent, 
+    wallThickness: number
+  ): THREE.BufferGeometry {
+    const length = component.length_m;
+    const baseRadius = component.base_radius_m || 0.025;
+    const wallThickness_m = wallThickness / 1000; // Convert mm to m
+    
+    // Create proper hollow parabolic shell using LatheGeometry
+    const segments = 32;
+    const points: THREE.Vector3[] = [];
+    
+    // Generate points for parabolic profile
+    for (let i = 0; i <= segments; i++) {
+      const t = i / segments;
+      const x = length * t;
+      
+      // Parabolic equation: y = √(4px) where p = R²/(4L)
+      const p = (baseRadius * baseRadius) / (4 * length);
+      const y = Math.sqrt(4 * p * x);
+      
+      // Outer surface
+      points.push(new THREE.Vector3(x, y, 0));
+      // Inner surface (wall thickness)
+      const innerY = Math.max(0, y - wallThickness_m);
+      points.push(new THREE.Vector3(x, innerY, 0));
+    }
+    
+    // Create lathe geometry for hollow parabolic shell
+    const shape = new THREE.Shape();
+    shape.moveTo(points[0].x, points[0].y);
+    
+    // Create the outer wall
+    for (let i = 0; i < points.length; i += 2) {
+      shape.lineTo(points[i].x, points[i].y);
+    }
+    
+    // Create the inner wall (reverse direction)
+    for (let i = points.length - 1; i >= 1; i -= 2) {
+      shape.lineTo(points[i].x, points[i].y);
+    }
+    
+    // Close the shape
+    shape.lineTo(points[0].x, points[0].y);
+    
+    const geometry = new THREE.LatheGeometry(shape.getPoints(segments), segments);
+    return geometry;
+  }
+  
+  /**
+   * Generate cylindrical shell geometry for body tubes
+   */
+  private generateCylindricalShellGeometry(
+    outerRadius: number,
+    length: number,
+    wallThickness: number
+  ): THREE.BufferGeometry {
+    const wallThickness_m = wallThickness / 1000; // Convert mm to m
+    const innerRadius = Math.max(0, outerRadius - wallThickness_m);
+    
+    // Create proper hollow cylindrical shell using LatheGeometry
+    const segments = 32;
+    const points: THREE.Vector3[] = [];
+    
+    // Generate points for cylindrical shell profile
+    // Outer wall
+    points.push(new THREE.Vector3(0, outerRadius, 0));           // Base outer
+    points.push(new THREE.Vector3(length, outerRadius, 0));      // Top outer
+    
+    // Inner wall (reverse direction to create hollow)
+    points.push(new THREE.Vector3(length, innerRadius, 0));      // Top inner
+    points.push(new THREE.Vector3(0, innerRadius, 0));           // Base inner
+    
+    // Create lathe geometry for hollow shell
+    const shape = new THREE.Shape();
+    shape.moveTo(points[0].x, points[0].y);
+    
+    // Create the outer wall
+    for (let i = 0; i < 2; i++) {
+      shape.lineTo(points[i].x, points[i].y);
+    }
+    
+    // Create the inner wall (reverse direction)
+    for (let i = 3; i >= 2; i--) {
+      shape.lineTo(points[i].x, points[i].y);
+    }
+    
+    // Close the shape
+    shape.lineTo(points[0].x, points[0].y);
+    
+    const geometry = new THREE.LatheGeometry(shape.getPoints(segments), segments);
     return geometry;
   }
   

@@ -386,8 +386,8 @@ export default function DesignEditorPanel({ onClose, activeFinIndex, setActiveFi
         <div className="flex items-center justify-between mb-3">
           <div className="text-xs font-semibold text-white">Fins</div>
           <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1">
-              <div className="text-[11px] text-white/70">Active</div>
+            <div className="flex items-center gap-2">
+              <div className="text-[10px] text-green-400/70">Active</div>
               <select
                 value={Math.min(activeFinIndex ?? 0, Math.max(0, fins.length - 1))}
                 onChange={(e) => setActiveFinIndex?.(Math.max(0, Math.min(fins.length - 1, parseInt(e.target.value))))}

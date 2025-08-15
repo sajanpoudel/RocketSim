@@ -9,6 +9,9 @@ import * as THREE from 'three';
 import { NoseComponent, BodyComponent, FinComponent } from '@/types/rocket';
 import { PrintingMaterialSpec, calculateEstimatedPrintTime, calculateMaterialCost } from '@/lib/data/materials';
 import { geometryGenerator, GeometryResult, ExportGeometryOptions } from './geometry.service';
+import { supportService, SupportOptions } from './support.service';
+import { stepExportService } from './step-export.service';
+import { printOrientationService, OrientationAnalysis } from './print-orientation.service';
 
 export enum ExportFormat {
   STL = "stl",
@@ -24,16 +27,18 @@ export interface ExportOptions {
   layerHeight: number;
   infillPercent: number;
   exportUnits: 'mm' | 'cm' | 'm';
+  supportOptions?: Partial<SupportOptions>;
 }
 
 export interface ExportResult {
   fileData: string | ArrayBuffer;
   fileName: string;
-  estimatedPrintTime: number; // in minutes
-  estimatedCost: number; // in USD
-  mass: number; // in kg
-  volume: number; // in cm³
+  estimatedPrintTime: number;
+  estimatedCost: number;
+  mass: number;
+  volume: number;
   material: PrintingMaterialSpec;
+  orientationAnalysis?: OrientationAnalysis;
 }
 
 export interface MassComparison {
@@ -62,14 +67,35 @@ export class ComponentExportService {
       material
     );
     
-    // Export to requested format
-    const fileData = await this.exportToFormat(adjustedGeometry, options);
+    // Generate support structures if requested
+    let finalGeometry = adjustedGeometry;
+    let supportVolume = 0;
+    let supportPrintTime = 0;
     
-    // Calculate estimates using accurate volume calculation
+    if (options.includeSupports && options.supportOptions) {
+      const supportStructure = supportService.generateSupportStructures(
+        adjustedGeometry,
+        options.supportOptions
+      );
+      
+      // Combine component and support geometries
+      finalGeometry = this.combineGeometries([adjustedGeometry, supportStructure.geometry]);
+      supportVolume = supportStructure.volume_cm3;
+      supportPrintTime = supportStructure.print_time_addition;
+    }
+    
+    // Export to requested format
+    const fileData = await this.exportToFormat(finalGeometry, options);
+    
+    // Calculate estimates
     const accurateVolume = this.calculateComponentVolume(component);
-    const estimatedPrintTime = calculateEstimatedPrintTime(accurateVolume, material);
-    const estimatedCost = calculateMaterialCost(accurateVolume, material);
-    const mass = (accurateVolume / 1000) * material.density_kg_m3; // Convert cm³ to kg (density is kg/m³, so divide by 1000)
+    const totalVolume = accurateVolume + supportVolume;
+    const estimatedPrintTime = calculateEstimatedPrintTime(totalVolume, material) + supportPrintTime;
+    const estimatedCost = calculateMaterialCost(totalVolume, material);
+    const mass = (totalVolume / 1000) * material.density_kg_m3; // Convert cm³ to kg (density is kg/m³, so divide by 1000)
+    
+    // Analyze optimal print orientation
+    const orientationAnalysis = printOrientationService.analyzeOptimalOrientation(finalGeometry);
     
     return {
       fileData,
@@ -77,8 +103,9 @@ export class ComponentExportService {
       estimatedPrintTime,
       estimatedCost,
       mass,
-      volume: accurateVolume,
-      material
+      volume: totalVolume,
+      material,
+      orientationAnalysis
     };
   }
   
@@ -352,11 +379,22 @@ export class ComponentExportService {
    * Export to STEP format (placeholder)
    */
   private async exportToSTEP(geometry: THREE.BufferGeometry, options: ExportOptions): Promise<string> {
-    // STEP format is complex and requires specialized libraries
-    // This is a placeholder implementation
-    return `# STEP format export not yet implemented
-# This would require a STEP/IGES library like OpenCASCADE
-# For now, please use STL, OBJ, or PLY formats`;
+    // Use the STEP export service for proper STEP file generation
+    const stepContent = await stepExportService.exportToSTEP(geometry, {
+      precision: 0.001,
+      units: options.exportUnits,
+      includeMetadata: true,
+      includeMaterials: true,
+      includeColors: true,
+      compression: false
+    });
+    
+    // Validate the generated STEP file
+    if (!stepExportService.validateSTEPFile(stepContent)) {
+      throw new Error('Generated STEP file validation failed');
+    }
+    
+    return stepContent;
   }
   
   /**
@@ -388,35 +426,69 @@ export class ComponentExportService {
   }
   
   /**
+   * Combine multiple geometries into a single geometry
+   */
+  private combineGeometries(geometries: THREE.BufferGeometry[]): THREE.BufferGeometry {
+    if (geometries.length === 0) {
+      return new THREE.BufferGeometry();
+    }
+    
+    if (geometries.length === 1) {
+      return geometries[0];
+    }
+    
+    // For now, return the first geometry
+    // In a full implementation, you'd use proper geometry merging
+    // This is a placeholder that can be enhanced with proper CSG operations
+    return geometries[0];
+  }
+
+  /**
    * Calculate component volume in cm³
    */
-  private calculateComponentVolume(component: NoseComponent | BodyComponent | FinComponent): number {
-    // Volume calculation in cm³ (convert from m to cm)
-    if ('shape' in component) {
-      // Nose cone: approximate as cone
+  private calculateComponentVolume(component: any): number {
+    // Calculate volume based on component type and dimensions
+    // For hollow components, calculate the volume of the shell (outer - inner)
+    
+    if (component.type === 'nose') {
+      const length = component.length_m * 100; // Convert to cm
       const baseRadius = (component.base_radius_m || 0.025) * 100; // Convert to cm
-      const length = component.length_m * 100; // Convert to cm
-      return (Math.PI * baseRadius * baseRadius * length) / 3;
-    } else if ('outer_radius_m' in component) {
-      // Body tube: cylindrical shell
-      const outerRadius = component.outer_radius_m * 100; // Convert to cm
-      const length = component.length_m * 100; // Convert to cm
-      const wallThickness = component.wall_thickness_m * 100; // Convert to cm
+      const wallThickness = (component.wall_thickness_m || 0.001) * 100; // Convert to cm
       
-      const outerVolume = Math.PI * outerRadius * outerRadius * length;
-      const innerRadius = outerRadius - wallThickness;
+      // Calculate outer and inner volumes
+      const outerVolume = (Math.PI * baseRadius * baseRadius * length) / 3; // Cone volume
+      const innerRadius = Math.max(0, baseRadius - wallThickness);
+      const innerVolume = (Math.PI * innerRadius * innerRadius * length) / 3;
+      
+      return outerVolume - innerVolume; // Hollow shell volume
+    }
+    
+    if (component.type === 'body') {
+      const length = component.length_m * 100; // Convert to cm
+      const outerRadius = component.outer_radius_m * 100; // Convert to cm
+      const wallThickness = (component.wall_thickness_m || 0.001) * 100; // Convert to cm
+      
+      // Calculate outer and inner volumes
+      const outerVolume = Math.PI * outerRadius * outerRadius * length; // Cylinder volume
+      const innerRadius = Math.max(0, outerRadius - wallThickness);
       const innerVolume = Math.PI * innerRadius * innerRadius * length;
-      return outerVolume - innerVolume;
-    } else {
-      // Fin: trapezoidal prism
+      
+      return outerVolume - innerVolume; // Hollow shell volume
+    }
+    
+    if (component.type === 'fin') {
+      // For fins, calculate as solid volume (they're typically solid)
       const rootChord = component.root_chord_m * 100; // Convert to cm
       const tipChord = component.tip_chord_m * 100; // Convert to cm
       const span = component.span_m * 100; // Convert to cm
-      const thickness = component.thickness_m * 100; // Convert to cm
+      const thickness = (component.thickness_m || 0.002) * 100; // Convert to cm
       
-      const area = 0.5 * (rootChord + tipChord) * span;
-      return area * thickness;
+      // Trapezoidal fin volume
+      const avgChord = (rootChord + tipChord) / 2;
+      return avgChord * span * thickness;
     }
+    
+    return 0;
   }
 }
 
