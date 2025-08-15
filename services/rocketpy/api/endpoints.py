@@ -297,33 +297,182 @@ def register_routes(app: FastAPI):
                 except Exception:
                     pass
             
-            # Stability rating
-            if static_margin < 1.0:
-                rating = "unstable"
-                recommendation = "Add fins or move center of mass forward"
-            elif static_margin < 1.5:
-                rating = "marginally_stable"
-                recommendation = "Consider adding more fin area"
-            elif static_margin < 3.0:
-                rating = "stable"
-                recommendation = "Good stability margin"
-            else:
-                rating = "overstable"
-                recommendation = "May be sluggish in flight, consider reducing fin area"
-            
             return {
                 "static_margin": static_margin,
-                "rating": rating,
-                "recommendation": recommendation,
-                "cp_location_m": nose_length + body_diameter * 2,
-                "cm_location_m": nose_length + body_diameter * 1.5,
-                "fin_configuration": {
-                    "total_fins": fin_count,
-                    "contributes_to_stability": fin_count > 0
-                }
+                "fin_count": fin_count,
+                "nose_length": nose_length,
+                "body_diameter": body_diameter,
+                "stability_rating": "stable" if static_margin > 1.0 else "unstable"
             }
         except Exception as e:
             logger.error(f"Stability analysis failed: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @app.post("/analyze/recovery")
+    async def analyze_recovery_system(request: SimulationRequestModel):
+        """Comprehensive recovery system analysis using real simulation data"""
+        logger.info("Received recovery analysis request")
+        
+        try:
+            validate_body_tubes(request.rocket)
+            
+            # Run enhanced simulation to get real flight data
+            analysis_options = {
+                "rtol": 1e-8,
+                "atol": 1e-12,
+                "include_trajectory_analysis": True,
+                "include_recovery_analysis": True,
+                "terminate_on_apogee": False,  # Continue to ground impact
+                "max_time": 600  # 10 minutes max for recovery analysis
+            }
+            
+            if ROCKETPY_AVAILABLE:
+                # Use enhanced simulation for real recovery data
+                result = await simulate_rocket_6dof_enhanced(
+                    request.rocket,
+                    request.environment,
+                    request.launchParameters,
+                    analysis_options
+                )
+                
+                # Extract recovery-specific data from simulation
+                recovery_data = {
+                    "deployment_altitude": request.environment.elevation_m + 150,  # Default 150m AGL
+                    "terminal_velocity": getattr(result, 'landing_velocity', 0),
+                    "descent_time": getattr(result, 'descent_time', 0),
+                    "drift_distance": getattr(result, 'drift_distance', 0),
+                    "landing_velocity": getattr(result, 'landing_velocity', 0),
+                    "impact_energy": getattr(result, 'impact_energy', 0),
+                    "recovery_rating": getattr(result, 'recovery_rating', 'unknown'),
+                    "recommendations": getattr(result, 'recovery_recommendations', [])
+                }
+                
+                # Calculate additional recovery metrics using real material densities
+                rocket_mass = 0.1  # Base mass
+                
+                # Body tubes mass with real material densities
+                for tube in request.rocket.body_tubes:
+                    material_density = tube.material_density_kg_m3
+                    volume = tube.length_m * tube.outer_radius_m * tube.wall_thickness_m * 2 * 3.14159
+                    rocket_mass += volume * material_density
+                
+                # Nose cone mass with real material density
+                if request.rocket.nose_cone:
+                    nose_density = request.rocket.nose_cone.material_density_kg_m3
+                    nose_volume = request.rocket.nose_cone.length_m * request.rocket.nose_cone.base_radius_m * request.rocket.nose_cone.wall_thickness_m * 3.14159
+                    rocket_mass += nose_volume * nose_density
+                
+                # Fins mass with real material density
+                for fin_set in request.rocket.fins:
+                    fin_density = fin_set.material_density_kg_m3
+                    fin_area = 0.5 * (fin_set.root_chord_m + fin_set.tip_chord_m) * fin_set.span_m
+                    fin_volume = fin_area * fin_set.thickness_m * fin_set.fin_count
+                    rocket_mass += fin_volume * fin_density
+                
+                # Parachute analysis (if parachutes are configured)
+                if hasattr(request.rocket, 'parachutes') and request.rocket.parachutes:
+                    parachute = request.rocket.parachutes[0]
+                    parachute_area = parachute.cd_s_m2 / 1.3  # Approximate area from Cd·S
+                    parachute_loading = rocket_mass / parachute_area
+                    
+                    recovery_data.update({
+                        "parachute_area": parachute_area,
+                        "parachute_loading": parachute_loading,
+                        "parachute_cd": 1.3,
+                        "deployment_delay": parachute.lag_s
+                    })
+                else:
+                    # Estimate parachute requirements using real atmospheric data
+                    target_velocity = 6.0  # m/s safe landing velocity
+                    
+                    # Use real air density from environment if available, otherwise fallback
+                    air_density = 1.225  # Default sea level
+                    if hasattr(request.environment, 'atmospheric_profile') and request.environment.atmospheric_profile:
+                        # Use air density at deployment altitude
+                        deployment_altitude = request.environment.elevation_m + 150
+                        # Find closest altitude in profile
+                        altitudes = request.environment.atmospheric_profile.get('altitude', [])
+                        densities = request.environment.atmospheric_profile.get('density', [])
+                        if altitudes and densities:
+                            # Simple interpolation (could be improved)
+                            for i, alt in enumerate(altitudes):
+                                if alt >= deployment_altitude:
+                                    air_density = densities[i] if i < len(densities) else densities[-1]
+                                    break
+                    
+                    parachute_area = (2 * rocket_mass * 9.81) / (air_density * 1.3 * target_velocity**2)
+                    
+                    recovery_data.update({
+                        "parachute_area": parachute_area,
+                        "parachute_loading": rocket_mass / parachute_area,
+                        "parachute_cd": 1.3,
+                        "deployment_delay": 1.5,
+                        "recommendations": recovery_data.get("recommendations", []) + [
+                            f"Recommended parachute area: {parachute_area:.3f} m² for safe landing"
+                        ]
+                    })
+                
+                return recovery_data
+            else:
+                # Fallback to simplified recovery analysis with real material densities
+                rocket_mass = 0.1  # Base mass
+                
+                # Body tubes mass with real material densities
+                for tube in request.rocket.body_tubes:
+                    material_density = tube.material_density_kg_m3
+                    volume = tube.length_m * tube.outer_radius_m * tube.wall_thickness_m * 2 * 3.14159
+                    rocket_mass += volume * material_density
+                
+                # Nose cone mass with real material density
+                if request.rocket.nose_cone:
+                    nose_density = request.rocket.nose_cone.material_density_kg_m3
+                    nose_volume = request.rocket.nose_cone.length_m * request.rocket.nose_cone.base_radius_m * request.rocket.nose_cone.wall_thickness_m * 3.14159
+                    rocket_mass += nose_volume * nose_density
+                
+                # Fins mass with real material density
+                for fin_set in request.rocket.fins:
+                    fin_density = fin_set.material_density_kg_m3
+                    fin_area = 0.5 * (fin_set.root_chord_m + fin_set.tip_chord_m) * fin_set.span_m
+                    fin_volume = fin_area * fin_set.thickness_m * fin_set.fin_count
+                    rocket_mass += fin_volume * fin_density
+                
+                # Simplified parachute calculations with real air density
+                air_density = 1.225  # Default sea level
+                if hasattr(request.environment, 'atmospheric_profile') and request.environment.atmospheric_profile:
+                    deployment_altitude = request.environment.elevation_m + 150
+                    altitudes = request.environment.atmospheric_profile.get('altitude', [])
+                    densities = request.environment.atmospheric_profile.get('density', [])
+                    if altitudes and densities:
+                        for i, alt in enumerate(altitudes):
+                            if alt >= deployment_altitude:
+                                air_density = densities[i] if i < len(densities) else densities[-1]
+                                break
+                
+                parachute_area = 0.1  # m² default
+                terminal_velocity = (2 * rocket_mass * 9.81) / (air_density * 1.3 * parachute_area)
+                terminal_velocity = terminal_velocity ** 0.5
+                
+                return {
+                    "deployment_altitude": 150,
+                    "terminal_velocity": terminal_velocity,
+                    "descent_time": 30,
+                    "drift_distance": 50,
+                    "landing_velocity": terminal_velocity,
+                    "impact_energy": 0.5 * rocket_mass * terminal_velocity**2,
+                    "recovery_rating": "estimated",
+                    "parachute_area": parachute_area,
+                    "parachute_loading": rocket_mass / parachute_area,
+                    "parachute_cd": 1.3,
+                    "deployment_delay": 1.5,
+                    "recommendations": [
+                        "Using simplified recovery analysis (RocketPy not available)",
+                        f"Estimated terminal velocity: {terminal_velocity:.1f} m/s",
+                        "Run enhanced simulation for accurate recovery data"
+                    ]
+                }
+                
+        except Exception as e:
+            logger.error(f"Recovery analysis failed: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
     @app.get("/motors/detailed", response_model=Dict[str, Any])

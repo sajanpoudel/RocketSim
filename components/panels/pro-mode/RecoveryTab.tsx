@@ -173,26 +173,49 @@ export default function RecoveryTab() {
     setIsAnalyzing(true);
     
     try {
-      // Simulate recovery analysis (in a real implementation, this might call a backend)
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      if (recoveryMetrics) {
-        const prediction = {
-          deploymentAltitude: recoveryMetrics.deploymentAltitude,
-          terminalVelocity: recoveryMetrics.terminalVelocity,
-          descentTime: recoveryMetrics.totalDescentTime,
-          driftDistance: recoveryMetrics.driftDistance,
-          landingVelocity: recoveryMetrics.landingVelocity,
-          recommendations: recoveryMetrics.recommendations
-        };
-        
-        useRocket.getState().setRecoveryPrediction(prediction);
-        
-        // Dispatch event for UI updates
-        window.dispatchEvent(new CustomEvent('recoveryPrediction', { 
-          detail: { prediction } 
-        }));
+      // Call real recovery analysis API
+      const response = await fetch('/api/recovery/analyze', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          rocket,
+          environment: useRocket.getState().environment,
+          launchParameters: useRocket.getState().launchParameters,
+          parachuteConfig: {
+            diameter: parachuteDiameter,
+            deploymentAltitude,
+            deploymentDelay
+          }
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Recovery analysis failed: ${response.statusText}`);
       }
+
+      const recoveryData = await response.json();
+      
+      // Update recovery prediction with real data
+      const prediction = {
+        deploymentAltitude: recoveryData.deployment_altitude,
+        terminalVelocity: recoveryData.terminal_velocity,
+        descentTime: recoveryData.descent_time,
+        driftDistance: recoveryData.drift_distance,
+        landingVelocity: recoveryData.landing_velocity,
+        impactEnergy: recoveryData.impact_energy,
+        parachuteArea: recoveryData.parachute_area,
+        parachuteLoading: recoveryData.parachute_loading,
+        recommendations: recoveryData.recommendations || []
+      };
+      
+      useRocket.getState().setRecoveryPrediction(prediction);
+      
+      // Dispatch event for UI updates
+      window.dispatchEvent(new CustomEvent('recoveryPrediction', { 
+        detail: { prediction } 
+      }));
       
     } catch (error) {
       console.error('Recovery analysis failed:', error);

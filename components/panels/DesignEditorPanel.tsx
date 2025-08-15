@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react"
 import { useRocket } from "@/lib/store"
 import { dispatchActions } from "@/lib/ai/actions"
+import { MATERIAL_DATABASE, getRecommendedMaterials, MaterialSpec } from "@/lib/data/materials"
 
 type NumberInputProps = {
   label: string
@@ -86,6 +87,47 @@ function SelectInput({ label, value, options, onCommit }: { label: string; value
             {opt}
           </option>
         ))}
+      </select>
+    </div>
+  )
+}
+
+function MaterialSelect({ 
+  label, 
+  value, 
+  componentType, 
+  onCommit 
+}: { 
+  label: string; 
+  value: string; 
+  componentType: 'nose_cone' | 'body_tube' | 'fin' | 'motor' | 'recovery';
+  onCommit: (materialId: string) => void 
+}) {
+  const recommendedMaterials = getRecommendedMaterials(componentType);
+  const allMaterials = Object.values(MATERIAL_DATABASE);
+  
+  return (
+    <div className="flex items-center justify-between gap-3 py-1.5">
+      <span className="text-xs text-white/70 whitespace-nowrap">{label}</span>
+      <select
+        value={value}
+        onChange={(e) => onCommit(e.target.value)}
+        className="w-40 px-2 py-1 rounded bg-black/40 border border-white/10 text-white text-xs outline-none focus:border-cyan-400/50"
+      >
+        <optgroup label="Recommended" className="bg-black">
+          {recommendedMaterials.map((material) => (
+            <option key={material.id} value={material.id} className="bg-black">
+              {material.name} ({material.density_kg_m3} kg/m³)
+            </option>
+          ))}
+        </optgroup>
+        <optgroup label="All Materials" className="bg-black">
+          {allMaterials.filter(m => !recommendedMaterials.includes(m)).map((material) => (
+            <option key={material.id} value={material.id} className="bg-black">
+              {material.name} ({material.density_kg_m3} kg/m³)
+            </option>
+          ))}
+        </optgroup>
       </select>
     </div>
   )
@@ -204,6 +246,22 @@ export default function DesignEditorPanel({ onClose, activeFinIndex, setActiveFi
           max={0.01}
           onCommit={(wall_thickness_m) => dispatchActions([{ action: "update_nose_cone", props: { wall_thickness_m } }])}
         />
+        <MaterialSelect
+          label="Material"
+          value={rocket.nose_cone?.material_id || "fiberglass"}
+          componentType="nose_cone"
+          onCommit={(material_id) => {
+            const material = MATERIAL_DATABASE[material_id];
+            dispatchActions([{ 
+              action: "update_nose_cone", 
+              props: { 
+                material_id,
+                material_density_kg_m3: material.density_kg_m3,
+                surface_roughness_m: material.surfaceRoughness_m
+              } 
+            }]);
+          }}
+        />
         <ColorInput
           label="Color"
           value={rocket.nose_cone?.color}
@@ -258,6 +316,23 @@ export default function DesignEditorPanel({ onClose, activeFinIndex, setActiveFi
               min={0.0005}
               max={Math.min(0.01, b.outer_radius_m * 0.8)}
               onCommit={(wall_thickness_m) => dispatchActions([{ action: "update_body_tube", index: i, props: { wall_thickness_m } }])}
+            />
+            <MaterialSelect
+              label="Material"
+              value={b.material_id || "fiberglass"}
+              componentType="body_tube"
+              onCommit={(material_id) => {
+                const material = MATERIAL_DATABASE[material_id];
+                dispatchActions([{ 
+                  action: "update_body_tube", 
+                  index: i,
+                  props: { 
+                    material_id,
+                    material_density_kg_m3: material.density_kg_m3,
+                    surface_roughness_m: material.surfaceRoughness_m
+                  } 
+                }]);
+              }}
             />
             <ColorInput
               label="Color"
@@ -367,6 +442,22 @@ export default function DesignEditorPanel({ onClose, activeFinIndex, setActiveFi
               min={-15}
               max={15}
               onCommit={(cant_angle_deg) => dispatchActions([{ action: "update_fins", index: i, props: { cant_angle_deg } }])}
+            />
+            <MaterialSelect
+              label="Material"
+              value={f.material_id || "birch_plywood"}
+              componentType="fin"
+              onCommit={(material_id) => {
+                const material = MATERIAL_DATABASE[material_id];
+                dispatchActions([{ 
+                  action: "update_fins", 
+                  index: i,
+                  props: { 
+                    material_id,
+                    material_density_kg_m3: material.density_kg_m3
+                  } 
+                }]);
+              }}
             />
             <ColorInput
               label="Color"

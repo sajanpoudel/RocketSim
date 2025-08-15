@@ -34,7 +34,8 @@ export interface NoseComponent {
   length_m: number;                    // Length in meters
   base_radius_m?: number;             // Base radius in meters (if different from body)
   wall_thickness_m: number;           // Wall thickness in meters
-  material_density_kg_m3: number;     // Material density in kg/m³
+  material_id: string;                 // Material ID from materials database
+  material_density_kg_m3: number;     // Material density in kg/m³ (calculated from material_id)
   surface_roughness_m: number;        // Surface roughness in meters
   color?: string;                     // Optional color for rendering
 }
@@ -45,7 +46,8 @@ export interface BodyComponent {
   outer_radius_m: number;             // Outer radius in meters
   length_m: number;                   // Length in meters
   wall_thickness_m: number;           // Wall thickness in meters
-  material_density_kg_m3: number;     // Material density in kg/m³
+  material_id: string;                 // Material ID from materials database
+  material_density_kg_m3: number;     // Material density in kg/m³ (calculated from material_id)
   surface_roughness_m: number;        // Surface roughness in meters
   color?: string;                     // Optional color for rendering
 }
@@ -59,7 +61,8 @@ export interface FinComponent {
   span_m: number;                     // Fin span in meters
   sweep_length_m: number;             // Sweep length in meters
   thickness_m: number;                // Fin thickness in meters
-  material_density_kg_m3: number;     // Material density in kg/m³
+  material_id: string;                 // Material ID from materials database
+  material_density_kg_m3: number;     // Material density in kg/m³ (calculated from material_id)
   airfoil?: string;                   // Airfoil type (e.g., "symmetric")
   cant_angle_deg: number;             // Cant angle in degrees
   color?: string;                     // Optional color for rendering

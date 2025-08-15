@@ -10,6 +10,7 @@ from agents import function_tool
 from utils.models import ComponentProps, RocketProps
 
 # Import centralized materials constants
+# Note: These are now fallbacks only - real densities come from material_id
 DENSITY_FIBERGLASS = 1600.0
 DENSITY_PLYWOOD = 650.0  
 DENSITY_ALUMINUM = 2700.0
@@ -20,6 +21,7 @@ def update_nose_cone(
     length_m: Optional[float] = None,
     base_radius_m: Optional[float] = None,
     wall_thickness_m: Optional[float] = None,
+    material_id: Optional[str] = None,
     material_density_kg_m3: Optional[float] = None,
     color: Optional[str] = None
 ) -> Dict[str, Any]:
@@ -33,6 +35,8 @@ def update_nose_cone(
         props["base_radius_m"] = base_radius_m
     if wall_thickness_m is not None:
         props["wall_thickness_m"] = wall_thickness_m
+    if material_id is not None:
+        props["material_id"] = material_id
     if material_density_kg_m3 is not None:
         props["material_density_kg_m3"] = material_density_kg_m3
     if color is not None:
@@ -46,6 +50,7 @@ def update_body_tube(
     outer_radius_m: Optional[float] = None,
     length_m: Optional[float] = None,
     wall_thickness_m: Optional[float] = None,
+    material_id: Optional[str] = None,
     material_density_kg_m3: Optional[float] = None,
     color: Optional[str] = None
 ) -> Dict[str, Any]:
@@ -57,6 +62,8 @@ def update_body_tube(
         props["length_m"] = length_m
     if wall_thickness_m is not None:
         props["wall_thickness_m"] = wall_thickness_m
+    if material_id is not None:
+        props["material_id"] = material_id
     if material_density_kg_m3 is not None:
         props["material_density_kg_m3"] = material_density_kg_m3
     if color is not None:
@@ -69,7 +76,8 @@ def add_body_tube(
     outer_radius_m: float,
     length_m: float,
     wall_thickness_m: Optional[float] = 0.003,
-    material_density_kg_m3: Optional[float] = DENSITY_FIBERGLASS,
+    material_id: Optional[str] = "fiberglass",
+    material_density_kg_m3: Optional[float] = None,
     color: Optional[str] = None
 ) -> Dict[str, Any]:
     """Add a new body tube component."""
@@ -77,8 +85,10 @@ def add_body_tube(
         "outer_radius_m": outer_radius_m,
         "length_m": length_m,
         "wall_thickness_m": wall_thickness_m,
-        "material_density_kg_m3": material_density_kg_m3
+        "material_id": material_id
     }
+    if material_density_kg_m3 is not None:
+        props["material_density_kg_m3"] = material_density_kg_m3
     if color is not None:
         props["color"] = color
     
@@ -99,6 +109,7 @@ def update_fins(
     sweep_length_m: Optional[float] = None,
     thickness_m: Optional[float] = None,
     cant_angle_deg: Optional[float] = None,
+    material_id: Optional[str] = None,
     material_density_kg_m3: Optional[float] = None,
     airfoil: Optional[str] = None,
     color: Optional[str] = None
@@ -119,6 +130,8 @@ def update_fins(
         props["thickness_m"] = thickness_m
     if cant_angle_deg is not None:
         props["cant_angle_deg"] = cant_angle_deg
+    if material_id is not None:
+        props["material_id"] = material_id
     if material_density_kg_m3 is not None:
         props["material_density_kg_m3"] = material_density_kg_m3
     if airfoil is not None:
@@ -176,7 +189,8 @@ def add_fin_set(
     sweep_length_m: Optional[float] = 0.0,
     thickness_m: Optional[float] = 0.006,
     cant_angle_deg: Optional[float] = 0.0,
-    material_density_kg_m3: Optional[float] = DENSITY_PLYWOOD,
+    material_id: Optional[str] = "birch_plywood",
+    material_density_kg_m3: Optional[float] = None,
     airfoil: Optional[str] = "symmetric",
     color: Optional[str] = None
 ) -> Dict[str, Any]:
@@ -189,9 +203,11 @@ def add_fin_set(
         "sweep_length_m": sweep_length_m,
         "thickness_m": thickness_m,
         "cant_angle_deg": cant_angle_deg,
-        "material_density_kg_m3": material_density_kg_m3,
+        "material_id": material_id,
         "airfoil": airfoil
     }
+    if material_density_kg_m3 is not None:
+        props["material_density_kg_m3"] = material_density_kg_m3
     if color is not None:
         props["color"] = color
     

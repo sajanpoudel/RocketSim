@@ -61,11 +61,11 @@ export default function MotorTab() {
         const rocketMass = estimateRocketMass();
         const analysis = {
           motor: currentMotorData,
-          thrustToWeight: (currentMotorData.averageThrust || currentMotorData.thrust || 0) / (rocketMass * 9.81),
-          totalImpulse: currentMotorData.totalImpulse || 0,
-          specificImpulse: currentMotorData.specificImpulse || currentMotorData.isp || 0,
-          burnTime: currentMotorData.burnTime || 0,
-          averageThrust: currentMotorData.averageThrust || currentMotorData.thrust || 0,
+          thrustToWeight: (currentMotorData.avgThrust_N || currentMotorData.averageThrust || currentMotorData.thrust || 0) / (rocketMass * 9.81),
+          totalImpulse: currentMotorData.totalImpulse_Ns || currentMotorData.totalImpulse || 0,
+          specificImpulse: currentMotorData.isp_s || currentMotorData.specificImpulse || currentMotorData.isp || 0,
+          burnTime: currentMotorData.burnTime_s || currentMotorData.burnTime || 0,
+          averageThrust: currentMotorData.avgThrust_N || currentMotorData.averageThrust || currentMotorData.thrust || 0,
           impulseClass: currentMotorData.impulseClass || 'Unknown',
           recommendations: currentMotorData.applications || currentMotorData.recommendations || []
         };
@@ -299,35 +299,35 @@ export default function MotorTab() {
               <div className="space-y-2">
                 <MotorSpec
                   label="Average Thrust"
-                  value={currentMotor?.averageThrust || currentMotor?.thrust || 0}
+                  value={currentMotor?.avgThrust_N || currentMotor?.averageThrust || currentMotor?.thrust || 0}
                   unit="N"
                   color="text-green-400"
                   delay={0}
                 />
                 <MotorSpec
                   label="Maximum Thrust"
-                  value={currentMotor?.maxThrust || currentMotor?.peakThrust || currentMotor?.averageThrust || 0}
+                  value={currentMotor?.avgThrust_N || currentMotor?.maxThrust || currentMotor?.peakThrust || currentMotor?.averageThrust || 0}
                   unit="N"
                   color="text-red-400"
                   delay={0.1}
                 />
                 <MotorSpec
                   label="Total Impulse"
-                  value={currentMotor?.totalImpulse || 0}
+                  value={currentMotor?.totalImpulse_Ns || currentMotor?.totalImpulse || 0}
                   unit="N·s"
                   color="text-purple-400"
                   delay={0.2}
                 />
                 <MotorSpec
                   label="Burn Time"
-                  value={currentMotor?.burnTime || 0}
+                  value={currentMotor?.burnTime_s || currentMotor?.burnTime || 0}
                   unit="s"
                   color="text-yellow-400"
                   delay={0.3}
                 />
                 <MotorSpec
                   label="Specific Impulse"
-                  value={currentMotor?.specificImpulse || currentMotor?.isp || 0}
+                  value={currentMotor?.isp_s || currentMotor?.specificImpulse || currentMotor?.isp || 0}
                   unit="s"
                   color="text-cyan-400"
                   delay={0.4}
@@ -353,21 +353,21 @@ export default function MotorTab() {
                 />
                 <MotorSpec
                   label="Propellant Mass"
-                  value={currentMotor?.propellantMass || currentMotor?.weight?.propellant || 0}
+                  value={currentMotor?.mass?.propellant_kg || currentMotor?.propellantMass || currentMotor?.weight?.propellant || 0}
                   unit="kg"
                   color="text-orange-400"
                   delay={0.1}
                 />
                 <MotorSpec
                   label="Dry Mass"
-                  value={currentMotor?.dryMass || currentMotor?.weight?.dry || 0}
+                  value={(currentMotor?.mass?.total_kg || 0) - (currentMotor?.mass?.propellant_kg || 0) || currentMotor?.dryMass || currentMotor?.weight?.dry || 0}
                   unit="kg"
                   color="text-blue-400"
                   delay={0.2}
                 />
                 <MotorSpec
                   label="Total Launch Mass"
-                  value={rocketMass + (currentMotor?.dryMass || 0) + (currentMotor?.propellantMass || 0)}
+                  value={rocketMass + (currentMotor?.mass?.total_kg || 0)}
                   unit="kg"
                   color="text-green-400"
                   delay={0.3}
@@ -547,8 +547,8 @@ export default function MotorTab() {
                     >
                       <span className="text-slate-300 font-bold">{motorId.toUpperCase()}</span>
                       <div className="flex space-x-4 text-slate-400">
-                        <span className="text-green-400">{motor.averageThrust || motor.thrust || 0}N</span>
-                        <span className="text-purple-400">{motor.totalImpulse || 0}N·s</span>
+                        <span className="text-green-400">{motor.avgThrust_N || motor.averageThrust || motor.thrust || 0}N</span>
+                        <span className="text-purple-400">{motor.totalImpulse_Ns || motor.totalImpulse || 0}N·s</span>
                         <span className="text-blue-400">{motor.type || 'solid'}</span>
                       </div>
                     </motion.div>

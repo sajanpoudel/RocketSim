@@ -41,7 +41,8 @@ export const ROCKET_TEMPLATES: Record<string, RocketTemplate> = {
         length_m: 0.35,
         base_radius_m: 0.055,
         wall_thickness_m: 0.002,
-        material_density_kg_m3: MATERIALS.DENSITY_FIBERGLASS,
+        material_id: "fiberglass",
+        material_density_kg_m3: MATERIALS.FIBERGLASS.density_kg_m3,
         surface_roughness_m: 1e-5,
         color: "#FFFFFF"
       },
@@ -50,7 +51,8 @@ export const ROCKET_TEMPLATES: Record<string, RocketTemplate> = {
         outer_radius_m: 0.055,
         length_m: 0.70,
         wall_thickness_m: 0.003,
-        material_density_kg_m3: MATERIALS.DENSITY_FIBERGLASS,
+        material_id: "fiberglass",
+        material_density_kg_m3: MATERIALS.FIBERGLASS.density_kg_m3,
         surface_roughness_m: 1e-5,
         color: "#FFFFFF"
       }],
@@ -62,7 +64,8 @@ export const ROCKET_TEMPLATES: Record<string, RocketTemplate> = {
         span_m: 0.12,
         sweep_length_m: 0.06,
         thickness_m: 0.006,
-        material_density_kg_m3: MATERIALS.DENSITY_PLYWOOD,
+        material_id: "birch_plywood",
+        material_density_kg_m3: MATERIALS.PLYWOOD.density_kg_m3,
         airfoil: "symmetric",
         cant_angle_deg: 0.0,
         color: "#D3D3D3"
@@ -107,7 +110,8 @@ export const ROCKET_TEMPLATES: Record<string, RocketTemplate> = {
         length_m: 0.30,
         base_radius_m: 0.04,
         wall_thickness_m: 0.002,
-        material_density_kg_m3: MATERIALS.DENSITY_FIBERGLASS,
+        material_id: "fiberglass",
+        material_density_kg_m3: MATERIALS.FIBERGLASS.density_kg_m3,
         surface_roughness_m: 1e-5,
         color: "#E74C3C"
       },
@@ -116,7 +120,8 @@ export const ROCKET_TEMPLATES: Record<string, RocketTemplate> = {
         outer_radius_m: 0.04,
         length_m: 0.60,
         wall_thickness_m: 0.003,
-        material_density_kg_m3: MATERIALS.DENSITY_FIBERGLASS,
+        material_id: "fiberglass",
+        material_density_kg_m3: MATERIALS.FIBERGLASS.density_kg_m3,
         surface_roughness_m: 1e-5,
         color: "#FFFFFF"
       }],
@@ -128,7 +133,8 @@ export const ROCKET_TEMPLATES: Record<string, RocketTemplate> = {
         span_m: 0.10,
         sweep_length_m: 0.05,
         thickness_m: 0.006,
-        material_density_kg_m3: MATERIALS.DENSITY_PLYWOOD,
+        material_id: "birch_plywood",
+        material_density_kg_m3: MATERIALS.PLYWOOD.density_kg_m3,
         airfoil: "symmetric",
         cant_angle_deg: 0.0,
         color: "#2C3E50"
@@ -173,7 +179,8 @@ export const ROCKET_TEMPLATES: Record<string, RocketTemplate> = {
         length_m: 0.20,
         base_radius_m: 0.06,
         wall_thickness_m: 0.002,
-        material_density_kg_m3: MATERIALS.DENSITY_CARBON_FIBER,
+        material_id: "carbon_fiber",
+        material_density_kg_m3: MATERIALS.CARBON_FIBER.density_kg_m3,
         surface_roughness_m: 0.5e-5,
         color: "#1C1C1C"
       },
@@ -182,7 +189,8 @@ export const ROCKET_TEMPLATES: Record<string, RocketTemplate> = {
         outer_radius_m: 0.06,
         length_m: 0.60,
         wall_thickness_m: 0.003,
-        material_density_kg_m3: MATERIALS.DENSITY_CARBON_FIBER,
+        material_id: "carbon_fiber",
+        material_density_kg_m3: MATERIALS.CARBON_FIBER.density_kg_m3,
         surface_roughness_m: 0.5e-5,
         color: "#2C3E50"
       }],
@@ -194,7 +202,8 @@ export const ROCKET_TEMPLATES: Record<string, RocketTemplate> = {
         span_m: 0.10,
         sweep_length_m: 0.04,
         thickness_m: 0.008,
-        material_density_kg_m3: MATERIALS.DENSITY_CARBON_FIBER,
+        material_id: "carbon_fiber",
+        material_density_kg_m3: MATERIALS.CARBON_FIBER.density_kg_m3,
         airfoil: "symmetric",
         cant_angle_deg: 0.0,
         color: "#34495E"
@@ -254,7 +263,8 @@ export const ROCKET_TEMPLATES: Record<string, RocketTemplate> = {
         length_m: 0.25,
         base_radius_m: 0.055,
         wall_thickness_m: 0.001,
-        material_density_kg_m3: MATERIALS.DENSITY_CARBON_FIBER,
+        material_id: "carbon_fiber",
+        material_density_kg_m3: MATERIALS.CARBON_FIBER.density_kg_m3,
         surface_roughness_m: 0.3e-5,
         color: "#8E44AD"
       },
@@ -263,7 +273,8 @@ export const ROCKET_TEMPLATES: Record<string, RocketTemplate> = {
         outer_radius_m: 0.055,
         length_m: 0.80,
         wall_thickness_m: 0.002,
-        material_density_kg_m3: MATERIALS.DENSITY_CARBON_FIBER,
+        material_id: "carbon_fiber",
+        material_density_kg_m3: MATERIALS.CARBON_FIBER.density_kg_m3,
         surface_roughness_m: 0.3e-5,
         color: "#9B59B6"
       }],
@@ -275,7 +286,8 @@ export const ROCKET_TEMPLATES: Record<string, RocketTemplate> = {
         span_m: 0.08,
         sweep_length_m: 0.05,
         thickness_m: 0.004,
-        material_density_kg_m3: MATERIALS.DENSITY_CARBON_FIBER,
+        material_id: "carbon_fiber",
+        material_density_kg_m3: MATERIALS.CARBON_FIBER.density_kg_m3,
         airfoil: "symmetric",
         cant_angle_deg: 0.0,
         color: "#8E44AD"
@@ -320,7 +332,8 @@ export const ROCKET_TEMPLATES: Record<string, RocketTemplate> = {
         length_m: 0.30,
         base_radius_m: 0.075,
         wall_thickness_m: 0.003,
-        material_density_kg_m3: MATERIALS.DENSITY_ALUMINUM,
+        material_id: "aluminum_6061",
+        material_density_kg_m3: MATERIALS.ALUMINUM.density_kg_m3,
         surface_roughness_m: 2e-6,
         color: "#BDC3C7"
       },
@@ -329,7 +342,8 @@ export const ROCKET_TEMPLATES: Record<string, RocketTemplate> = {
         outer_radius_m: 0.075,
         length_m: 1.20,
         wall_thickness_m: 0.005,
-        material_density_kg_m3: MATERIALS.DENSITY_ALUMINUM,
+        material_id: "aluminum_6061",
+        material_density_kg_m3: MATERIALS.ALUMINUM.density_kg_m3,
         surface_roughness_m: 2e-6,
         color: "#95A5A6"
       }],
@@ -341,7 +355,8 @@ export const ROCKET_TEMPLATES: Record<string, RocketTemplate> = {
         span_m: 0.12,
         sweep_length_m: 0.06,
         thickness_m: 0.010,
-        material_density_kg_m3: MATERIALS.DENSITY_ALUMINUM,
+        material_id: "aluminum_6061",
+        material_density_kg_m3: MATERIALS.ALUMINUM.density_kg_m3,
         airfoil: "symmetric",
         cant_angle_deg: 0.0,
         color: "#7F8C8D"

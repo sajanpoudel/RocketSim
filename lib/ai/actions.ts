@@ -202,7 +202,8 @@ export function updateNoseCone(rocket: Rocket, action: any): Rocket {
     length_m: props.length_m !== undefined ? props.length_m : rocket.nose_cone?.length_m || 0.15,
     base_radius_m: props.base_radius_m !== undefined ? props.base_radius_m : rocket.nose_cone?.base_radius_m || 0.05,
     wall_thickness_m: props.wall_thickness_m !== undefined ? props.wall_thickness_m : rocket.nose_cone?.wall_thickness_m || 0.002,
-    material_density_kg_m3: props.material_density_kg_m3 !== undefined ? props.material_density_kg_m3 : rocket.nose_cone?.material_density_kg_m3 || MATERIALS.DENSITY_FIBERGLASS,
+    material_id: props.material_id || rocket.nose_cone?.material_id || "fiberglass",
+    material_density_kg_m3: props.material_density_kg_m3 !== undefined ? props.material_density_kg_m3 : rocket.nose_cone?.material_density_kg_m3 || MATERIALS.FIBERGLASS.density_kg_m3,
     surface_roughness_m: props.surface_roughness_m !== undefined ? props.surface_roughness_m : rocket.nose_cone?.surface_roughness_m || 1e-5,
     color: props.color || rocket.nose_cone?.color || "#A0A7B8"
   };
@@ -226,7 +227,8 @@ export function updateBodyTube(rocket: Rocket, action: any): Rocket {
       outer_radius_m: props.outer_radius_m || 0.05,
       length_m: props.length_m || 0.40,
       wall_thickness_m: props.wall_thickness_m || 0.003,
-      material_density_kg_m3: props.material_density_kg_m3 || MATERIALS.DENSITY_FIBERGLASS,
+      material_id: props.material_id || "fiberglass",
+      material_density_kg_m3: props.material_density_kg_m3 || MATERIALS.FIBERGLASS.density_kg_m3,
       surface_roughness_m: props.surface_roughness_m || 1e-5,
       color: props.color || "#8C8D91"
     };
@@ -267,7 +269,8 @@ export function updateFinSet(rocket: Rocket, action: any): Rocket {
       span_m: props.span_m || 0.06,
       sweep_length_m: props.sweep_length_m || 0.02,
       thickness_m: props.thickness_m || 0.006,
-      material_density_kg_m3: props.material_density_kg_m3 || MATERIALS.DENSITY_PLYWOOD,
+      material_id: props.material_id || "birch_plywood",
+      material_density_kg_m3: props.material_density_kg_m3 || MATERIALS.PLYWOOD.density_kg_m3,
       airfoil: props.airfoil || "symmetric",
       cant_angle_deg: props.cant_angle_deg || 0.0,
       color: props.color || "#A0A7B8"
@@ -389,7 +392,8 @@ function addBodyTubeHelper(rocket: Rocket, props: Partial<BodyComponent>): Rocke
     outer_radius_m: props.outer_radius_m ?? 0.05,
     length_m: props.length_m ?? 0.4,
     wall_thickness_m: props.wall_thickness_m ?? 0.003,
-    material_density_kg_m3: props.material_density_kg_m3 ?? MATERIALS.DENSITY_FIBERGLASS,
+    material_id: props.material_id ?? "fiberglass",
+    material_density_kg_m3: props.material_density_kg_m3 ?? MATERIALS.FIBERGLASS.density_kg_m3,
     surface_roughness_m: props.surface_roughness_m ?? 1e-5,
     color: props.color ?? '#8C8D91'
   } as BodyComponent;
@@ -412,7 +416,8 @@ function addFinSetHelper(rocket: Rocket, props: Partial<FinComponent>): Rocket {
     span_m: props.span_m ?? 0.06,
     sweep_length_m: props.sweep_length_m ?? 0.02,
     thickness_m: props.thickness_m ?? 0.006,
-    material_density_kg_m3: props.material_density_kg_m3 ?? MATERIALS.DENSITY_PLYWOOD,
+    material_id: props.material_id ?? "birch_plywood",
+    material_density_kg_m3: props.material_density_kg_m3 ?? MATERIALS.PLYWOOD.density_kg_m3,
     airfoil: props.airfoil ?? 'symmetric',
     cant_angle_deg: props.cant_angle_deg ?? 0.0,
     color: props.color ?? '#A0A7B8'

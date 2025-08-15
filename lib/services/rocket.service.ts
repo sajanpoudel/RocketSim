@@ -850,7 +850,8 @@ export class RocketService {
         length_m: 0.1,
         base_radius_m: 0.05,
         wall_thickness_m: 0.002,
-        material_density_kg_m3: MATERIALS.DENSITY_FIBERGLASS,
+        material_id: 'fiberglass',
+        material_density_kg_m3: MATERIALS.FIBERGLASS.density_kg_m3,
         surface_roughness_m: 1e-5,
         color: '#FFFFFF'
       },

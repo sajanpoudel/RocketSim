@@ -15,7 +15,8 @@ class NoseComponentModel(BaseModel):
     length_m: float = Field(..., description="Nose cone length in meters", gt=0, le=2.0)
     base_radius_m: Optional[float] = Field(None, description="Base radius in meters (if different from body)", gt=0)
     wall_thickness_m: float = Field(0.002, description="Wall thickness in meters", gt=0, le=0.01)
-    material_density_kg_m3: float = Field(1600.0, description="Material density in kg/m³")  # Default fiberglass
+    material_id: str = Field("fiberglass", description="Material ID from materials database")
+    material_density_kg_m3: float = Field(1600.0, description="Material density in kg/m³ (calculated from material_id)")
     surface_roughness_m: float = Field(1e-5, description="Surface roughness in meters")
     
     @validator('length_m')
@@ -30,7 +31,8 @@ class BodyComponentModel(BaseModel):
     outer_radius_m: float = Field(..., description="Outer radius in meters", gt=0, le=1.0)
     length_m: float = Field(..., description="Length in meters", gt=0, le=10.0)
     wall_thickness_m: float = Field(0.003, description="Wall thickness in meters", gt=0, le=0.01)
-    material_density_kg_m3: float = Field(1600.0, description="Material density in kg/m³")  # Default fiberglass
+    material_id: str = Field("fiberglass", description="Material ID from materials database")
+    material_density_kg_m3: float = Field(1600.0, description="Material density in kg/m³ (calculated from material_id)")
     surface_roughness_m: float = Field(1e-5, description="Surface roughness in meters")
     
     @validator('wall_thickness_m')
@@ -48,7 +50,8 @@ class FinComponentModel(BaseModel):
     span_m: float = Field(..., description="Fin span in meters", gt=0, le=0.3)
     sweep_length_m: float = Field(0.0, description="Sweep length in meters", ge=0, le=0.2)
     thickness_m: float = Field(0.006, description="Fin thickness in meters", gt=0, le=0.02)
-    material_density_kg_m3: float = Field(650.0, description="Material density in kg/m³")  # Default plywood
+    material_id: str = Field("birch_plywood", description="Material ID from materials database")
+    material_density_kg_m3: float = Field(650.0, description="Material density in kg/m³ (calculated from material_id)")
     airfoil: Optional[str] = Field("symmetric", description="Airfoil type")
     cant_angle_deg: float = Field(0.0, description="Cant angle in degrees", ge=-15, le=15)
     
