@@ -252,6 +252,8 @@ class SimulationFlight:
                 impact_velocity = getattr(self.flight, 'impact_velocity', None)
                 if impact_velocity is None:
                     impact_velocity = getattr(self.flight, 'final_velocity', None)
+                if impact_velocity is not None:
+                    impact_velocity = abs(float(np.asarray(impact_velocity).item()))
                 drift_distance = self._calculate_drift_distance()
             except Exception as impact_error:
                 logger.warning(f"⚠️ Impact data extraction failed: {impact_error}")
