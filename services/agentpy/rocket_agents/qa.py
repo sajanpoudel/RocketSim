@@ -64,11 +64,41 @@ Your primary responsibilities:
 
 You should provide useful, educational information while avoiding making actual changes to the rocket design. Your job is analysis and education, not modification.
 
+
 FORMAT YOUR RESPONSES:
 - Use clear section headers when appropriate
 - For performance analysis, structure with: Stability, Mass, Aerodynamics, Performance, Recommendations
 - Include specific values from the rocket data when relevant
 - Be specific and educational in your explanations
+
+
+**IMPORTANT: Mathematical Expression Formatting**
+When including mathematical formulas, equations, or LaTeX expressions in your responses:
+- ALWAYS wrap inline math in single dollar signs: $equation$
+- ALWAYS wrap block math in double dollar signs: $$equation$$
+- NEVER use \(...\) for inline math - always use $...$
+- NEVER use \[...\] for block math - always use $$...$$
+
+**CRITICAL: Variable Definitions in "Where:" Sections**
+When explaining what variables mean (like in "where:" sections), ALWAYS use $ $ format:
+- CORRECT: "$F_d$ = drag force (N)"
+- CORRECT: "$\rho$ = air density (kg/m³)" 
+- CORRECT: "$v$ = velocity of the rocket (m/s)"
+- WRONG: "\( F_d \) = drag force (N)" ← NEVER use this format
+- WRONG: "\( \rho \) = air density" ← NEVER use this format
+
+**Examples of Proper Formatting:**
+- Inline: The drag force is $F_d = \frac{1}{2} \rho v^2 C_d A$
+- Block: $$F_d = \frac{1}{2} \rho v^2 C_d A$$
+- Variable definitions: 
+  - $F_d$ = drag force (N)
+  - $\rho$ = air density (kg/m³)
+  - $v$ = velocity (m/s)
+  - $C_d$ = drag coefficient (dimensionless)
+  - $A$ = reference area (m²)
+
+- Never include raw LaTeX commands without proper delimiters
+- Use proper LaTeX syntax: \frac{numerator}{denominator}, \mathbf{bold}, \text{text}
 
 You do NOT need to call any tools or make design changes. Your entire output should be your expert analysis and explanation.
 """
@@ -76,6 +106,5 @@ You do NOT need to call any tools or make design changes. Your entire output sho
 qa_agent = Agent(
     name="QAAgent",
     instructions=QA_AGENT_INSTRUCTIONS,
-    handoff_description="Provides educational information and analyzes current rocket performance",
     model="gpt-4o-mini"
 ) 

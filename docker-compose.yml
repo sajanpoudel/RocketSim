@@ -1,25 +1,88 @@
-version: '3'
-
 services:
   web:
-    build: .
+    build: 
+      context: .
+      dockerfile: Dockerfile
     ports:
       - "3000:3000"
-    env_file: .env
-    depends_on: [agentpy]
-    volumes:
-      - .:/app
-      - /app/node_modules
-    command: npm run dev
+    environment:
+      - NODE_ENV=production
+      - AGENT_URL=http://agentpy:8002
+      - ROCKETPY_URL=http://rocketpy:8000
+      # Database configuration
+      - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
+      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      # API Keys
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - NEXT_PUBLIC_OPENWEATHER_API_KEY=${NEXT_PUBLIC_OPENWEATHER_API_KEY}
+      - WEATHERAPI_KEY=${WEATHERAPI_KEY}
+      - NEXT_PUBLIC_NOAA_API_KEY=${NEXT_PUBLIC_NOAA_API_KEY}
+      # Cache configuration
+      - UPSTASH_REDIS_REST_URL=${UPSTASH_REDIS_REST_URL}
+      - UPSTASH_REDIS_REST_TOKEN=${UPSTASH_REDIS_REST_TOKEN}
+    env_file:
+      - .env
+    depends_on:
+      agentpy:
+        condition: service_healthy
+      rocketpy:
+        condition: service_healthy
+    networks:
+      - rocket-network
+    restart: unless-stopped
 
   agentpy:
-    build: ./services/agentpy
-    ports: ["8002:8002"]
-    env_file: .env
-    volumes:
-      - ./services/agentpy:/app
+    build: 
+      context: ./services/agentpy
+      dockerfile: Dockerfile
+    ports:
+      - "8002:8002"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+    env_file:
+      - .env
+    networks:
+      - rocket-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8002/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   rocketpy:
-    build: ./services/rocketpy
-    ports: ["8000:8000"]
-    env_file: .env 
+    build: 
+      context: ./services/rocketpy
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=DEBUG
+    networks:
+      - rocket-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    volumes:
+      - ./lib/data:/app/lib/data:ro
+      - geomagindices-data:/home/rocket/.geomagindices
+
+networks:
+  rocket-network:
+    driver: bridge
+
+volumes:
+  rocket-data:
+    driver: local
+  geomagindices-data:
+    driver: local 

@@ -24,6 +24,7 @@ The system uses a modular architecture with specialized agents for different tas
 
 ### Agent Types
 
+
 - **Router Agent**: Determines which specialized agent should handle each user request
 - **Design Agent**: Handles rocket component modifications (adding/updating parts)
 - **Simulation Agent**: Handles rocket flight simulations

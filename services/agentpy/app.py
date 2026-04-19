@@ -10,9 +10,11 @@ import uvicorn
 from agents import Agent, Runner, function_tool
 
 # Import our modules
-from utils.models import ChatRequest, AgentRequest
+from utils.models import ChatRequest, AgentRequest, EnvironmentData, SimulationHistory, AnalysisHistory
 from utils.format import format_response
 from utils.fallbacks import extract_intent_from_text, design_rocket_for_altitude
+# Import comprehensive context builder
+from utils.context_builder import build_comprehensive_context
 
 # Import all the specialized agents
 from rocket_agents import (
@@ -21,12 +23,16 @@ from rocket_agents import (
     metrics_agent,
     qa_agent,
     router_agent,
+    weather_agent,
     #get_rocket_details,
     PREDICTION_AGENT_INSTRUCTIONS
 )
 
 # Import all the tools
-from tools.design_tools import add_part, update_part, update_rocket, altitude_design_tool
+from tools.design_tools import (
+    update_nose_cone, update_body_tube, update_fins, update_motor, update_parachute, 
+    update_rocket_properties, altitude_design_tool
+)
 from tools.sim_tools import run_simulation
 
 # Get API key from environment
@@ -48,6 +54,148 @@ def clean_messages(messages):
             "content": msg.get("content", "")
         })
     return cleaned
+
+def build_agent_context(agent_name: str, req: ChatRequest, user_message: str = "") -> str:
+    """
+    Build comprehensive context appropriate for each agent type.
+    
+    Args:
+        agent_name: Name of the agent that will receive the context
+        req: ChatRequest containing all available context data
+        user_message: Current user message for context
+    
+    Returns:
+        Formatted context string optimized for the specific agent
+    """
+    
+    # Define which agents need which types of context
+    AGENT_CONTEXT_NEEDS = {
+        "master": {
+            "environment": True,
+            "simulation_history": True, 
+            "analysis_history": True,
+            "user_preferences": True,
+            "session_info": True
+        },
+        "design": {
+            "environment": True,  # For flight conditions during design
+            "simulation_history": True,  # For performance trends
+            "analysis_history": True,  # For stability patterns
+            "user_preferences": True,  # For experience-appropriate designs
+            "session_info": False
+        },
+        "sim": {
+            "environment": True,  # Critical for simulation accuracy
+            "simulation_history": True,  # For comparison with previous runs
+            "analysis_history": False,
+            "user_preferences": True,  # For simulation fidelity preferences
+            "session_info": False
+        },
+        "metrics": {
+            "environment": False,  # Less critical for analysis
+            "simulation_history": True,  # Essential for trend analysis
+            "analysis_history": True,  # Core requirement
+            "user_preferences": True,  # For appropriate complexity level
+            "session_info": False
+        },
+        "qa": {
+            "environment": False,
+            "simulation_history": True,  # For answering performance questions
+            "analysis_history": True,  # For technical questions
+            "user_preferences": True,  # For appropriate detail level
+            "session_info": True  # For context-aware responses
+        },
+        "weather": {
+            "environment": True,  # Critical for weather analysis
+            "simulation_history": False,  # Not needed for weather assessment
+            "analysis_history": False,  # Not needed for weather data
+            "user_preferences": True,  # For safety level preferences
+            "session_info": True  # For location and timing context
+        },
+        "router": {
+            # Router needs minimal context, just for classification
+            "environment": False,
+            "simulation_history": False,
+            "analysis_history": False,
+            "user_preferences": True,  # For understanding user's skill level
+            "session_info": True  # For routing based on session patterns
+        },
+        "prediction": {
+            "environment": True,  # For realistic "what-if" scenarios
+            "simulation_history": True,  # For baseline comparisons
+            "analysis_history": True,  # For understanding current state
+            "user_preferences": True,  # For appropriate complexity
+            "session_info": False
+        }
+    }
+    
+    # Get context requirements for this agent
+    context_needs = AGENT_CONTEXT_NEEDS.get(agent_name, AGENT_CONTEXT_NEEDS["master"])
+    
+    # Build context based on needs - properly typed
+    environment_data: Optional[EnvironmentData] = req.environment if context_needs["environment"] else None
+    simulation_history: Optional[List[SimulationHistory]] = req.simulationHistory if context_needs["simulation_history"] else None
+    analysis_history: Optional[List[AnalysisHistory]] = req.analysisHistory if context_needs["analysis_history"] else None
+    user_preferences: Optional[Dict[str, Any]] = req.userPreferences if context_needs["user_preferences"] else None
+    session_info: Optional[Dict[str, Any]] = req.sessionInfo if context_needs["session_info"] else None
+    
+    # Generate the comprehensive context
+    comprehensive_context = build_comprehensive_context(
+        rocket_data=req.rocket,
+        environment=environment_data,
+        simulation_history=simulation_history,
+        analysis_history=analysis_history,
+        user_preferences=user_preferences,
+        session_info=session_info,
+        user_message=user_message
+    )
+    
+    # Add agent-specific instructions based on available context
+    agent_specific_additions = []
+    
+    if agent_name == "design":
+        if environment_data and environment_data.windSpeed is not None:
+            if environment_data.windSpeed > 10:
+                agent_specific_additions.append("⚠️ HIGH WINDS: Consider designing for stability in windy conditions")
+            elif environment_data.windSpeed > 5:
+                agent_specific_additions.append("💨 MODERATE WINDS: Design should account for wind effects")
+        
+        if simulation_history and len(simulation_history) > 0:
+            latest_sim = simulation_history[-1]
+            if latest_sim.stabilityMargin is not None and latest_sim.stabilityMargin < 1.0:
+                agent_specific_additions.append("🚨 STABILITY ISSUE: Previous simulation showed unstable flight")
+            if latest_sim.maxAltitude is not None and latest_sim.maxAltitude < 100:
+                agent_specific_additions.append("📉 LOW PERFORMANCE: Previous simulation showed low altitude")
+    
+    elif agent_name == "sim":
+        if environment_data:
+            agent_specific_additions.append("🌤️ SIMULATION NOTE: Use current environmental conditions for accurate results")
+    
+    elif agent_name == "metrics":
+        if simulation_history and len(simulation_history) > 1:
+            agent_specific_additions.append(f"📊 TREND ANALYSIS: {len(simulation_history)} simulations available for comparison")
+    
+    # Add agent-specific notes if any
+    if agent_specific_additions:
+        comprehensive_context += "\n=== AGENT-SPECIFIC NOTES ===\n"
+        comprehensive_context += "\n".join(agent_specific_additions)
+        comprehensive_context += "\n"
+    
+    return comprehensive_context
+
+def create_enhanced_system_message(agent_name: str, req: ChatRequest, user_message: str = "") -> dict:
+    """Create an enhanced system message with comprehensive context for the specified agent."""
+    
+    # Build comprehensive context for this agent
+    context_content = build_agent_context(agent_name, req, user_message)
+    
+    # Create the enhanced system message
+    system_message = {
+        "role": "system",
+        "content": context_content
+    }
+    
+    return system_message
 
 # Helper function to extract actions from result
 async def extract_actions_from_result(result, message_text, rocket_data):
@@ -103,6 +251,24 @@ def get_token_usage(result):
 MASTER_AGENT_INSTRUCTIONS = """
 You are an expert master agent for rocket design coordination. You help users design, optimize, and understand model rockets.
 
+**IMPORTANT: Mathematical Expression Formatting**
+When including mathematical formulas, equations, or LaTeX expressions in your responses:
+- ALWAYS wrap inline math in single dollar signs: $equation$
+- ALWAYS wrap block math in double dollar signs: $$equation$$
+
+**CRITICAL: Variable Definitions in "Where:" Sections**
+When explaining what variables mean (like in "where:" sections), ALWAYS use $ $ format:
+- CORRECT: "$F_d$ = drag force (N)"
+- CORRECT: "$\rho$ = air density (kg/m³)" 
+- WRONG: "\( F_d \) = drag force (N)" ← NEVER use this format
+
+- Examples:
+  - Inline: The drag force is $F_d = \frac{1}{2} \rho v^2 C_d A$
+  - Block: $$\text{Stability Margin} = \frac{\text{Distance from CoG to CoP}}{D}$$ 
+  - Variable definitions: $F_d$ = drag force (N), $\rho$ = air density (kg/m³)
+- Never include raw LaTeX commands without proper delimiters
+- Use proper LaTeX syntax: \frac{numerator}{denominator}, \mathbf{bold}, \text{text}
+
 First, analyze the user's request. The user's message will be followed by the current rocket state in a block like this:
 CURRENT_ROCKET_JSON:
 ```json
@@ -117,16 +283,20 @@ Decision Tree:
     - If for **metrics/analysis** (e.g., "is my rocket stable?", "calculate CoG"), delegate to `metrics_agent_tool`.
 
 2.  Direct Modification (Simple & Confident)?
-    - If the request is a very simple, direct modification (e.g., "change motor to X", "set fin span to Y for fin 'finset1'") AND you are highly confident and know the part ID (from the provided `CURRENT_ROCKET_JSON`), you MAY use the direct tools (`add_part`, `update_part`, `update_rocket`) yourself.
+    - If the request is a very simple, direct modification (e.g., "change motor to X", "update nose cone length", "modify fin dimensions") AND you are highly confident, you MAY use the component-based tools directly. Use `update_nose_cone`, `update_body_tube`, `update_fins`, `update_motor`, `update_parachute` as appropriate for specific components.
 
 3.  Complex Request or Follow-up?
     - If the request is complex, involves multiple steps, or is a follow-up to your previous suggestions, reason through the steps. If design changes are needed, delegate those specific changes to `design_agent_tool` (specifying the part and desired change, referencing the `CURRENT_ROCKET_JSON`) or use direct tools if extremely simple and you have all necessary info like IDs from the `CURRENT_ROCKET_JSON`.
 
 Available Tools (for you or to instruct design_agent_tool):
-- `add_part(type: str, props: PartProps)`
-- `update_part(id: str, props: PartProps)`
-- `update_rocket(props: RocketProps)`
-- `run_simulation(fidelity: Literal["quick", "hifi"])`
+- `update_nose_cone(props: ComponentProps)` - Update nose cone with shape, length_m, base_radius_m, etc.
+- `update_body_tube(props: ComponentProps, index: int)` - Update body tube at specific index
+- `update_fins(props: ComponentProps, index: int)` - Update fin set at specific index
+- `update_motor(props: ComponentProps)` - Update motor with motor_database_id, position, etc.
+- `update_parachute(props: ComponentProps, index: int)` - Update parachute at specific index
+- `update_rocket_properties(props: RocketProps)` - Update rocket-level properties
+- `run_simulation(fidelity: Literal["quick", "hifi"])` - Run simulation
+- `altitude_design_tool(target_altitude: float, rocket_data: Dict)` - Design for specific altitude
 
 **CRITICAL: Ensuring Changes are Actioned and Reported**
 - When you use a direct tool, its JSON output IS the action.
@@ -147,7 +317,7 @@ If the user asks you to "teach me what you did" or "explain the changes", summar
 master_agent = Agent(
     name="Rocket‑Cursor AI",
     instructions=MASTER_AGENT_INSTRUCTIONS,
-    tools=[add_part, update_part, update_rocket, run_simulation, altitude_design_tool],
+    tools=[update_nose_cone, update_body_tube, update_fins, update_motor, update_parachute, update_rocket_properties, run_simulation, altitude_design_tool],
     model="gpt-4o-mini",
 )
 
@@ -184,6 +354,7 @@ AGENTS = {
     "metrics": metrics_agent,
     "qa": qa_agent,
     "router": router_agent,
+    "weather": weather_agent,
     "prediction": prediction_agent,
 }
 
@@ -193,14 +364,33 @@ async def reason(req: ChatRequest):
     Primary endpoint to process user requests and return agent responses with actions.
     """
     try:
+        print(f"DEBUG: Received request - Messages: {len(req.messages)}, Rocket ID: {req.rocket.get('id', 'unknown')}")
+        
         # Clean messages to ensure proper format for Agents SDK
         cleaned_messages = clean_messages(req.messages)
         latest_message = cleaned_messages[-1]["content"] if cleaned_messages else ""
         
+        print(f"DEBUG: Latest message: {latest_message[:100]}...")
+        
+        # Check if we have required data
+        if not req.rocket or not isinstance(req.rocket, dict):
+            print("ERROR: Invalid rocket data")
+            raise HTTPException(status_code=422, detail="Invalid rocket data provided")
+            
+        if not cleaned_messages:
+            print("ERROR: No valid messages")
+            raise HTTPException(status_code=422, detail="No valid messages provided")
+        
         # Prepare the context with the current rocket state
-        system_message = {"role": "system", "content": f"CURRENT_ROCKET_JSON\n{json.dumps(req.rocket)}"}
-        messages = [system_message] + cleaned_messages
+
+        ################ Not Used
+        #system_message = create_enhanced_system_message("master", req, latest_message)
+        #messages = [system_message] + cleaned_messages
+        ################ Not Used
+        
         rocket_json_str = json.dumps(req.rocket)
+        
+        print(f"DEBUG: System message created, rocket JSON length: {len(rocket_json_str)}")
         
         # Track the agent flow for transparency
         agent_flow = []
@@ -208,14 +398,25 @@ async def reason(req: ChatRequest):
         
         # First, use the router agent to determine which specialized agent to use
         router_runner = Runner()
+        # Use enhanced context for router
+        router_system_message = create_enhanced_system_message("router", req, latest_message)
+        router_messages = [router_system_message] + cleaned_messages
+        
+        print("DEBUG: About to run router agent...")
+        
         router_result = await router_runner.run(
             router_agent,
-            input=messages,
-            context={"current_rocket_json_str": rocket_json_str}
+            input=router_messages,
+            context={"current_rocket_json_str": rocket_json_str},
+            max_turns=30  # Much higher for complex routing decisions
         )
+        
+        print(f"DEBUG: Router result type: {type(router_result)}")
         
         # Get the routed agent name
         routed_agent_name = router_result.completion.strip().lower() if hasattr(router_result, 'completion') else router_result.final_output.strip().lower() if hasattr(router_result, 'final_output') else ""
+        
+        print(f"DEBUG: Routed to agent: {routed_agent_name}")
         
         # Track which agents will execute
         primary_agent_name = "master"  # Default
@@ -242,12 +443,28 @@ async def reason(req: ChatRequest):
             primary_agent_name = routed_agent_name
             agent_flow.append({"agent": primary_agent_name, "role": "primary", "timestamp": str(datetime.now())})
             
+            print(f"DEBUG: Using specialized agent: {primary_agent_name}")
+            
+            # Create enhanced context for the specialized agent
+            specialized_system_message = create_enhanced_system_message(primary_agent_name, req, latest_message)
+            
+            # For QA agent, append rocket data to the message content
+            if primary_agent_name == "qa":
+                # Add rocket JSON to the latest message for QA agent
+                enhanced_message = f"{latest_message}\n\nCURRENT_ROCKET_JSON:\n```json\n{rocket_json_str}\n```"
+                specialized_messages = [specialized_system_message] + cleaned_messages[:-1] + [{"role": "user", "content": enhanced_message}]
+            else:
+                specialized_messages = [specialized_system_message] + cleaned_messages
+            
             runner = Runner()
             primary_result = await runner.run(
                 specialized_agent,
-                input=messages,
-                context={"current_rocket_json_str": rocket_json_str}
+                input=specialized_messages,
+                context={"current_rocket_json_str": rocket_json_str},
+                max_turns=30  # Much higher for complex design operations
             )
+            
+            print(f"DEBUG: Primary agent completed")
             
             # Extract actions from the primary agent
             primary_actions = await extract_actions_from_result(primary_result, cleaned_messages[-1]["content"], req.rocket)
@@ -270,15 +487,14 @@ async def reason(req: ChatRequest):
                         design_needs_sim = True
                         design_needs_metrics = True
                     
-                    # Substantial body/nose/fin changes
-                    elif action.get('action') == 'update_part':
-                        props = action.get('props', {})
-                        if any(k in props for k in ['length', 'Ø', 'baseØ', 'root', 'span', 'sweep', 'shape']):
-                            design_needs_sim = True
-                            design_needs_metrics = True
+                    # Substantial component changes
+                    elif action.get('action') in ['update_nose_cone', 'update_body_tube', 'update_fins', 'update_motor', 'update_parachute']:
+                        # Any component modification needs simulation and metrics follow-up
+                        design_needs_sim = True
+                        design_needs_metrics = True
                     
-                    # Adding new parts
-                    elif action.get('action') == 'add_part':
+                    # Rocket-level changes
+                    elif action.get('action') == 'update_rocket_properties':
                         design_needs_sim = True
                         design_needs_metrics = True
                 
@@ -295,12 +511,17 @@ async def reason(req: ChatRequest):
                 secondary_agents.append("sim")
                 agent_flow.append({"agent": "sim", "role": "secondary", "timestamp": str(datetime.now())})
                 
+                # Create enhanced context for sim agent
+                sim_system_message = create_enhanced_system_message("sim", req, f"Design changes applied: {json.dumps(primary_actions)}")
+                sim_messages = [sim_system_message] + cleaned_messages + [{"role": "assistant", "content": f"Design changes have been applied: {json.dumps(primary_actions)}"}]
+                
                 # Run sim agent after design changes are applied
                 sim_runner = Runner()
                 sim_result = await sim_runner.run(
                     sim_agent,
-                    input=messages + [{"role": "assistant", "content": f"Design changes have been applied: {json.dumps(primary_actions)}"}],
-                    context={"current_rocket_json_str": rocket_json_str, "design_actions": json.dumps(primary_actions)}
+                    input=sim_messages,
+                    context={"current_rocket_json_str": rocket_json_str, "design_actions": json.dumps(primary_actions)},
+                    max_turns=20  # Increased for complex simulations
                 )
                 secondary_results["sim"] = sim_result
                 
@@ -312,21 +533,35 @@ async def reason(req: ChatRequest):
                 # Add metrics agent as secondary
                 agent_flow.append({"agent": "metrics", "role": "secondary", "timestamp": str(datetime.now())})
                 secondary_agents.append("metrics")
+                
+                # Create enhanced context for metrics agent  
+                metrics_system_message = create_enhanced_system_message("metrics", req, f"Design changes applied: {json.dumps(primary_actions)}")
+                metrics_messages = [metrics_system_message] + cleaned_messages + [{"role": "assistant", "content": f"Design changes have been applied: {json.dumps(primary_actions)}"}]
+                
                 metrics_runner = Runner()
                 metrics_result = await metrics_runner.run(
                     metrics_agent,
-                    input=messages + [{"role": "assistant", "content": f"Design changes have been applied: {json.dumps(primary_actions)}"}],
-                    context={"current_rocket_json_str": rocket_json_str, "design_actions": json.dumps(primary_actions)}
+                    input=metrics_messages,
+                    context={"current_rocket_json_str": rocket_json_str, "design_actions": json.dumps(primary_actions)},
+                    max_turns=30  # Increased for complex analysis
                 )
                 secondary_results["metrics"] = metrics_result
         else:
             # Fall back to master agent if router couldn't identify a specialized agent
             agent_flow.append({"agent": "master", "role": "primary", "timestamp": str(datetime.now())})
+            
+            print("DEBUG: Using master agent as fallback")
+            
+            # Create enhanced context for master agent
+            master_system_message = create_enhanced_system_message("master", req, latest_message)
+            master_messages = [master_system_message] + cleaned_messages
+            
             runner = Runner()
             primary_result = await runner.run(
                 master_agent,
-                input=messages,
-                context={"current_rocket_json_str": rocket_json_str}
+                input=master_messages,
+                context={"current_rocket_json_str": rocket_json_str},
+                max_turns=30  # Much higher for complex master agent operations
             )
             
             # Extract actions using the helper function
@@ -335,6 +570,8 @@ async def reason(req: ChatRequest):
         
         # Ensure we have a primary result
         result = primary_result
+        
+        print(f"DEBUG: Processing final result, actions count: {len(all_actions)}")
         
         # Create an enhanced user-facing response that combines the outputs
         enhanced_response = ""
@@ -350,20 +587,33 @@ async def reason(req: ChatRequest):
         if all_actions:
             action_summary = "\n\n### Actions Performed\n\n"
             for action in all_actions:
-                if action.get('action') == 'update_part':
-                    part_id = action.get('id')
+                if action.get('action') == 'update_nose_cone':
                     props = action.get('props', {})
                     prop_list = ", ".join([f"**{k}**: {v}" for k, v in props.items()])
-                    action_summary += f"- Updated **{part_id}** with {prop_list}\n"
-                elif action.get('action') == 'add_part':
-                    part_type = action.get('type')
+                    action_summary += f"- Updated **nose cone** with {prop_list}\n"
+                elif action.get('action') == 'update_body_tube':
+                    index = action.get('index', 0)
                     props = action.get('props', {})
                     prop_list = ", ".join([f"**{k}**: {v}" for k, v in props.items()])
-                    action_summary += f"- Added new **{part_type}** with {prop_list}\n"
-                elif action.get('action') == 'update_rocket':
+                    action_summary += f"- Updated **body tube {index}** with {prop_list}\n"
+                elif action.get('action') == 'update_fins':
+                    index = action.get('index', 0)
+                    props = action.get('props', {})
+                    prop_list = ", ".join([f"**{k}**: {v}" for k, v in props.items()])
+                    action_summary += f"- Updated **fin set {index}** with {prop_list}\n"
+                elif action.get('action') == 'update_motor':
+                    props = action.get('props', {})
+                    prop_list = ", ".join([f"**{k}**: {v}" for k, v in props.items()])
+                    action_summary += f"- Updated **motor** with {prop_list}\n"
+                elif action.get('action') == 'update_parachute':
+                    index = action.get('index', 0)
+                    props = action.get('props', {})
+                    prop_list = ", ".join([f"**{k}**: {v}" for k, v in props.items()])
+                    action_summary += f"- Updated **parachute {index}** with {prop_list}\n"
+                elif action.get('action') == 'update_rocket_properties':
                     props = action.get('props', {})
                     prop_list = ", ".join([f"**{k}**: {v}" for k, v in props.items()]) 
-                    action_summary += f"- Updated **rocket** with {prop_list}\n"
+                    action_summary += f"- Updated **rocket properties** with {prop_list}\n"
                 elif action.get('action') == 'run_sim':
                     fidelity = action.get('fidelity', 'quick')
                     action_summary += f"- Ran **{fidelity} simulation**\n"
@@ -462,7 +712,7 @@ async def reason_with_agent(req: AgentRequest):
         cleaned_messages = clean_messages(req.messages)
         
         # Prepare the context with the current rocket state
-        system_message = {"role": "system", "content": f"CURRENT_ROCKET_JSON\n{json.dumps(req.rocket)}"}
+        system_message = create_enhanced_system_message(agent_name, req)
         messages = [system_message] + cleaned_messages
         rocket_json_str = json.dumps(req.rocket)
         
@@ -483,12 +733,15 @@ async def reason_with_agent(req: AgentRequest):
             routed_agent_name = result.completion.strip().lower() if hasattr(result, 'completion') else result.final_output.strip().lower() if hasattr(result, 'final_output') else ""
             
             if routed_agent_name in AGENTS and routed_agent_name != "router":
-                # Re-run the request with the routed agent
+                # Re-run the request with the routed agent using enhanced context
                 routed_agent = AGENTS[routed_agent_name]
+                routed_system_message = create_enhanced_system_message(routed_agent_name, req)
+                routed_messages = [routed_system_message] + cleaned_messages
+                
                 runner = Runner()
                 routed_result = await runner.run(
                     routed_agent,
-                    input=messages,
+                    input=routed_messages,
                     context={"current_rocket_json_str": rocket_json_str}
                 )
                 
@@ -505,20 +758,33 @@ async def reason_with_agent(req: AgentRequest):
             # Add styled action summary
             action_summary = "\n\n### Actions Performed\n\n"
             for action in actions:
-                if action.get('action') == 'update_part':
-                    part_id = action.get('id')
+                if action.get('action') == 'update_nose_cone':
                     props = action.get('props', {})
                     prop_list = ", ".join([f"**{k}**: {v}" for k, v in props.items()])
-                    action_summary += f"- Updated **{part_id}** with {prop_list}\n"
-                elif action.get('action') == 'add_part':
-                    part_type = action.get('type')
+                    action_summary += f"- Updated **nose cone** with {prop_list}\n"
+                elif action.get('action') == 'update_body_tube':
+                    index = action.get('index', 0)
                     props = action.get('props', {})
                     prop_list = ", ".join([f"**{k}**: {v}" for k, v in props.items()])
-                    action_summary += f"- Added new **{part_type}** with {prop_list}\n"
-                elif action.get('action') == 'update_rocket':
+                    action_summary += f"- Updated **body tube {index}** with {prop_list}\n"
+                elif action.get('action') == 'update_fins':
+                    index = action.get('index', 0)
+                    props = action.get('props', {})
+                    prop_list = ", ".join([f"**{k}**: {v}" for k, v in props.items()])
+                    action_summary += f"- Updated **fin set {index}** with {prop_list}\n"
+                elif action.get('action') == 'update_motor':
+                    props = action.get('props', {})
+                    prop_list = ", ".join([f"**{k}**: {v}" for k, v in props.items()])
+                    action_summary += f"- Updated **motor** with {prop_list}\n"
+                elif action.get('action') == 'update_parachute':
+                    index = action.get('index', 0)
+                    props = action.get('props', {})
+                    prop_list = ", ".join([f"**{k}**: {v}" for k, v in props.items()])
+                    action_summary += f"- Updated **parachute {index}** with {prop_list}\n"
+                elif action.get('action') == 'update_rocket_properties':
                     props = action.get('props', {})
                     prop_list = ", ".join([f"**{k}**: {v}" for k, v in props.items()]) 
-                    action_summary += f"- Updated **rocket** with {prop_list}\n"
+                    action_summary += f"- Updated **rocket properties** with {prop_list}\n"
                 elif action.get('action') == 'run_sim':
                     fidelity = action.get('fidelity', 'quick')
                     action_summary += f"- Ran **{fidelity} simulation**\n"
@@ -567,7 +833,7 @@ async def route_query(req: ChatRequest):
         cleaned_messages = clean_messages(req.messages)
         
         # Prepare the context with the current rocket state
-        system_message = {"role": "system", "content": f"CURRENT_ROCKET_JSON\n{json.dumps(req.rocket)}"}
+        system_message = create_enhanced_system_message("router", req)
         messages = [system_message] + cleaned_messages
         rocket_json_str = json.dumps(req.rocket)
         
